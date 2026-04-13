@@ -1,0 +1,55 @@
+/**
+  ******************************************************************************
+  * @file           : user.c
+  * @brief          : the entry of user program
+  ******************************************************************************
+  STM32CubeMX Configuration
+
+  USART1: Mode Asynchronous.
+  DMA Settings:
+    Add USART1_TX (Stream 7, Channel 4). Mode: Normal, Increment Address: Memory.
+    Add USART1_RX (Stream 5, Channel 4). Mode: Circular (best for continuous data), Increment Address: Memory.
+  NVIC Settings: Enable USART1 global interrupt.
+  ******************************************************************************
+  */
+
+#include <stdio.h>
+
+#include "main.h"
+#include "user.h"
+
+
+static	file_t	*console;
+static	char	cmdline[64];
+
+void user_init(void)
+{
+	console = uart_open(&huart1, UART_POLL_MODE);		/* set USART1 as console */
+	uart_readline(console, cmdline, sizeof(cmdline));	/* monitoring the console */
+}
+
+void user_entry(void)
+{
+	file_t	*ddfp;
+
+	if ((ddfp = ddp_polling()) == NULL) {
+		return 0;
+	}
+	if (ddfp == console) {
+		if (console->state & FSTAT_SENT) {
+			console->state &= ~FSTAT_SENT;
+		}
+		if (console->state & FSTAT_RCVD) {
+			console->state &= ~FSTAT_RCVD;
+			user_command(cmdline, console->rx_len);
+			uart_readline(console, cmdline, sizeof(cmdline));
+		}
+	}
+}
+
+
+void user_command(char *s, int len)
+{
+
+
+

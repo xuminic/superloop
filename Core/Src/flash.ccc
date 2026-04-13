@@ -1,0 +1,211 @@
+
+#include <stdio.h>
+#include <stdint.h>
+
+#include "stm32f4xx_hal.h" // Replace with your specific series header
+#include "superloop.h"
+
+#define ADDR_SECTOR_0    	0x08040000  // Example Flash Address (Sector 6)
+#define ADDR_SECTOR_1    	0x08041000  // Example Flash Address (Sector 7)
+#define SECTOR_SIZE      	4096
+#define SLOTS_PER_SECTOR 	(SECTOR_SIZE / CFG_PARAM_SIZE)
+#define PARAM_SN_MAX		0xfff0
+#define PARAM_SN_HALF		(PARAM_SN_MAX >> 1)
+
+char	param_buffer[CFG_PARAM_SIZE];
+
+static	uint32_t	sector_primary;
+static	uint32_t	sector_shadow;
+
+
+/****************************************************************************
+ * Business logic department
+ ****************************************************************************/
+// --- Initialization: Scan for the absolute latest valid record ---
+void param_init(void)
+{
+	void	*pblock;
+	int	lastsn;
+
+	sector_primary = 0;
+	lastsn = -1;
+	pblock = NULL;
+	if (param_find_msblock(ADDR_SECTOR_0, &pblock, &lastsn)) {
+		sector_primary = ADDR_SECTOR_0;
+		sector_shadow  = ADDR_SECTOR_1;
+	}
+	if (param_find_msblock(ADDR_SECTOR_1, &pblock, &lastsn)) {
+		sector_primary = ADDR_SECTOR_1;
+		sector_shadow  = ADDR_SECTOR_0;
+	}
+	if (sector_primary) {
+		/* make sure the shadow sector is clean */
+		param_erase_sector(sector_shadow);
+	} else {
+		/* No parameter available - reset all two sectors */
+		sector_primary = ADDR_SECTOR_0;
+		sector_shadow  = ADDR_SECTOR_1;
+		param_erase_sector(ADDR_SECTOR_0);
+		param_erase_sector(ADDR_SECTOR_1);
+	}
+
+	if (pblock) {
+		memcpy(param_buffer, pblock, CFG_PARAM_SIZE);
+	} else {
+		memset(param_buffer, 0, CFG_PARAM_SIZE);
+	}
+	return pblock;
+}
+
+
+// --- Save: Write with sequence increment and sector rotation ---
+int param_save(void)
+{
+	uint16_t *param = (uint16_t *) param_buffer;
+	int	rc;
+
+	/* prepare the parameter block for flashing */
+	(*param)++;
+	if (*param > PARAM_SN_MAX) {
+		*param = 0;
+	}
+	modbus_crc_armour(param, CFG_PARAM_SIZE);
+
+	/* Find next empty slot in current sector */
+	if ((pb = param_find_available(sector_primary)) > 0) {
+		rc = param_flash_write(pb, param);
+	} else {
+		/* the current sector is full so we move to the next sector */
+		if ((pb = param_find_available(sector_shadow)) == 0) {
+			/* not supposed to be here. something wrong previously */
+			param_flash_erase(sector_shadow);
+			pb = sector_shadow;
+		}
+		if ((rc = param_flash_write(pb, param)) == 0) {	/* successfully written */
+			param_flash_erase(sector_primary);
+			pb = sector_primary;
+			sector_primary = sector_shadow;
+			sector_shadow = pb;
+		}
+	}
+	return rc;
+}
+
+static int param_find_msblock(uint32_t sector, void **pblock, int *lastsn)
+{
+	uint16_t  *pb;
+	int	  i, rc;
+
+	for (i = rc = 0; i < SLOTS_PER_SECTOR; i++) {
+		pb = (uint16_t *) (sector + CFG_PARAM_SIZE * i);
+		if (*pb == 0xffff) {
+			continue;	/* empty slot */
+		}
+		if (modbus_crc16(pb, CFG_PARAM_SIZE)) {
+			continue;	/* bad crc */
+		}
+		if ((*lastsn < 0) || param_is_newer(*lastsn, *pb)) {
+			*lastsn = *pb;
+			*pblock = pb;
+			rc++;
+		}
+	}
+	return rc;
+}
+
+/* Standard serial arithmetic: 
+ * - the maximum counting is PARAM_SN_MAX (0xfff0)
+ * - the maximum difference is below PARAM_SN_HALF (0x7ff0)
+ * - if the difference of two values are smaller than PARAM_SN_HALF, take the big number
+ * - if the difference of two values are bigger than PARAM_SN_HALF, take the small number
+ * - Since we only have 128 slots, the diff will actually be < 128. */
+static int param_is_newer(int old_seq, int new_seq)
+{
+	int	diff;
+
+	if (new_seq < old_seq) {
+		diff = old_seq - new_seq;
+	} else if (new_seq > old_seq) {
+		diff = new_seq - old_seq;
+	} else {
+		return 0;
+	}
+	if (diff < PARAM_SN_HALF) {
+		return (new_seq > old_seq);
+	}
+	return (new_seq < old_seq);
+}
+
+
+static uint32_t param_find_available(uint32_t sector)
+{
+	int	i;
+
+	for (i = 0; i < SLOTS_PER_SECTOR; i++, sector += CFG_PARAM_SIZE) {
+		if (param_whitespace((void*)sector, CFG_PARAM_SIZE)) {
+			return sector;	/* found it */
+		}
+	}
+	return 0;	/* not found the available block */
+}
+
+static int param_whitespace(void *faddr, int len)
+{
+	int	*p = faddr;
+
+	len /= sizeof(int);
+	while (len--) {
+		if (*p++ != -1) {
+			return 0;	/* not available */
+		}
+	}
+	return 1;
+}
+
+/****************************************************************************
+ * HAL interface
+ ****************************************************************************/
+// --- Helper: Flash Writing ---
+static int param_flash_write(uint32_t addr, int *param)
+{
+	int	i;
+
+	HAL_FLASH_Unlock();
+	for (i = 0; i < CFG_PARAM_SIZE / sizeof(int); i++, param++) {
+		if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr + i * sizeof(int), *param) != HAL_OK) {
+			HAL_FLASH_Lock();
+			return -1;
+		}
+        }
+	HAL_FLASH_Lock();
+	if (modbus_crc16((void*)addr, CFG_PARAM_SIZE)) {
+		return -2;
+	}
+	return 0;
+}
+
+// --- Helper: Flash Erase ---
+static int param_flash_erase(uint32_t addr)
+{
+	FLASH_EraseInitTypeDef erase;
+	uint32_t sectorError;
+	int	rc;
+
+	if (param_whitespace(addr, SECTOR_SIZE)) {
+		return 0;	/* clean sector - no need to erase */
+	}
+
+	erase.TypeErase = FLASH_TYPEERASE_SECTORS;
+	erase.Sector = (addr == ADDR_SECTOR_0) ? FLASH_SECTOR_6 : FLASH_SECTOR_7;
+	erase.NbSectors = 1;
+	erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+	HAL_FLASH_Unlock();
+	rc = HAL_FLASHEx_Erase(&erase, &sectorError);
+	HAL_FLASH_Lock();
+	if (rc != HAL_OK) {
+		return -1;
+	}
+	return 0;
+}
+

@@ -1,0 +1,153 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+
+
+/* https://www.itu.int/dms_pubrec/itu-r/rec/m/R-REC-M.1677-1-200910-I!!PDF-E.pdf */
+static	const	struct {
+	uint8_t	ch;
+	char	*code;
+} morse_table[] = {
+	// ===== Misc/Prosigns =====
+	{1, "...-."},     // UNDERSTOOD (SN)
+	{2, "........"},  // ERROR
+	{3, "-.-.-"},     // CT (start)
+	{4, ".-.-."},     // AR (end)
+	{5, "-...-.-"},   // BK (break)
+	{6, "-.-..-.."},  // CL (going off air)
+	{7, "...-.-"},    // SK (end of contact)
+
+	{'0', "-----"}, {'1', ".----"}, {'2', "..---"}, {'3', "...--"},
+	{'4', "....-"}, {'5', "....."}, {'6', "-...."}, {'7', "--..."},
+	{'8', "---.."}, {'9', "----."},
+
+	{'A', ".-"}, {'B', "-..."}, {'C', "-.-."}, {'D', "-.."},
+	{'E', "."}, {'F', "..-."}, {'G', "--."}, {'H', "...."},
+	{'I', ".."}, {'J', ".---"}, {'K', "-.-"}, {'L', ".-.."},
+	{'M', "--"}, {'N', "-."}, {'O', "---"}, {'P', ".--."},
+	{'Q', "--.-"}, {'R', ".-."}, {'S', "..."}, {'T', "-"},
+	{'U', "..-"}, {'V', "...-"}, {'W', ".--"}, {'X', "-..-"},
+	{'Y', "-.--"}, {'Z', "--.."},
+
+	{'a', ".-"}, {'b', "-..."}, {'c', "-.-."}, {'d', "-.."},
+	{'e', "."}, {'f', "..-."}, {'g', "--."}, {'h', "...."},
+	{'i', ".."}, {'j', ".---"}, {'k', "-.-"}, {'l', ".-.."},
+	{'m', "--"}, {'n', "-."}, {'o', "---"}, {'p', ".--."},
+	{'q', "--.-"}, {'r', ".-."}, {'s', "..."}, {'t', "-"},
+	{'u', "..-"}, {'v', "...-"}, {'w', ".--"}, {'x', "-..-"},
+	{'y', "-.--"}, {'z', "--.."},
+
+	// ===== Punctuation marks (ITU-R M.1677-1) =====
+	{'.', ".-.-.-"},   // full stop
+	{',', "--..--"},   // comma
+	{'?', "..--.."},   // question mark
+	{'\'', ".----."},  // apostrophe
+	{'!', "-.-.--"},   // exclamation mark
+	{'/', "-..-."},    // slash
+	{'(', "-.--."},    // open parenthesis
+	{')', "-.--.-"},   // close parenthesis
+	{'&', ".-..."},    // ampersand
+	{':', "---..."},   // colon
+	{';', "-.-.-."},   // semicolon
+	{'=', "-...-"},    // equals
+	{'+', ".-.-."},    // plus
+	{'-', "-....-"},   // hyphen
+	{'_', "..--.-"},   // underscore
+	{'"', ".-..-."},   // quotation mark
+	{'$', "...-..-"},  // dollar
+	{'@', ".--.-."},   // at
+
+	// ===== space for word gap =====
+	{' ', ""},
+
+	{0, NULL}
+};
+
+
+static uint32_t encode_char(const char *s)
+{
+    uint32_t out = 0;
+    int pos = 0;
+
+    while (*s && pos < 15)
+    {
+        // dot / dash
+        if (*s == '.')
+            out |= (1u << (pos * 2));   // 01
+        else
+            out |= (2u << (pos * 2));   // 10
+        pos++;
+
+        // inter-symbol gap = 00
+        if (pos < 15) {
+            out |= (0u << (pos * 2));
+            pos++;
+        }
+
+        s++;
+    }
+
+    // 结束符 11
+    if (pos < 16) {
+        out |= (3u << (pos * 2));
+        pos++;
+    }
+
+    // 剩余全部填 11（关键优化）
+    while (pos < 16) {
+        out |= (3u << (pos * 2));
+        pos++;
+    }
+
+    return out;
+}
+
+static uint32_t encode_space(void)
+{
+    uint32_t out = 0;
+    int pos = 0;
+
+    // 5 × 00
+    for (int i = 0; i < 5; i++) {
+        out |= (0u << (pos * 2));
+        pos++;
+    }
+
+    // 结束 11（第6个slot）
+    out |= (3u << (pos * 2));
+    pos++;
+
+    // 剩余填充 11
+    while (pos < 16) {
+        out |= (3u << (pos * 2));
+        pos++;
+    }
+
+    return out;
+}
+
+int main(void)
+{
+    uint32_t table[128] = {0};
+
+    for (int i = 0; morse_table[i].code; i++)
+    {
+        uint8_t ch = morse_table[i].ch;
+
+        if (ch == ' ')
+            table[ch] = encode_space();
+        else
+            table[ch] = encode_char(morse_table[i].code);
+    }
+
+    printf("const uint32_t morse32[128] = {\n");
+    for (int i = 0; i < 128; i++) {
+        printf("0x%08X,", table[i]);
+        if ((i & 3) == 3) printf("\n");
+    }
+    printf("};\n");
+
+    return 0;
+}
+
