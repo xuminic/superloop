@@ -53,3 +53,13 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# for this project
+.cproject
+.mxproject
+.project
+.settings
+Build
+Debug
+
+
