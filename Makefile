@@ -143,6 +143,9 @@ gdb:
 attach:
 	$(GDB) -ex "target remote localhost:3333" $(BUILD)/$(TARGET).elf
 
+readline: Core/Src/readline.c
+	gcc -Wall -DEXECUTABLE -o $@ $<
+
 ############################################
 # Clean
 ############################################

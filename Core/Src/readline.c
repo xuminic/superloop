@@ -103,11 +103,12 @@ static int readline_render(rdln_t *rdl, int curmove);
 static int readline_dummy(rdln_t *rdl);
 static int readline_backspace(rdln_t *rdl);
 static int readline_delete(rdln_t *rdl);
+static int readline_kill(rdln_t *rdl);
+static int readline_word_erase(rdln_t *rdl);
 static int readline_cursor_left(rdln_t *rdl);
 static int readline_cursor_right(rdln_t *rdl);
 static int readline_cursor_home(rdln_t *rdl);
 static int readline_cursor_end(rdln_t *rdl);
-static int readline_kill(rdln_t *rdl);
 	
 static	struct	{
 	char	*cmd;
@@ -119,7 +120,7 @@ static	struct	{
 	{ "\x15",	1,	readline_kill },	/* Ctrl-U */
 	{ "\x1",	1,	readline_cursor_home },	/* Ctrl-A */
 	{ "\x5",	1,	readline_cursor_end },	/* Ctrl-E */
-	{ "\x17",	1,	readline_dummy },	/* Ctrl-W */
+	{ "\x17",	1,	readline_word_erase },	/* Ctrl-W */
 	{ "\x1b[1~",	4,	readline_cursor_home },	/* Control Sequence Introducer (CSI) */
 	{ "\x1bO1~",	4,	readline_cursor_home },	/* Single Shift Select (SS3) */
 	{ "\x1b[H",	3,	readline_cursor_home },
@@ -140,9 +141,6 @@ static	struct	{
 	{ 0, 0, NULL }
 };
 
-#define CURSOR_LEFT()	u_puts("\033[1D")
-#define CURSOR_RIGHT()	u_puts("\033[1C")
-#define ERASE_TO_END()	u_puts("\033[K")  // 清除从当前光标到行尾的所有内容
 
 void *readline_init(void)
 {
@@ -182,10 +180,11 @@ char *readline(int c)
 		line.hold[line.hdlen++] = c;
 		break;
 	}
-	//printf("-> %d %d %d %d\n", line.idx, line.cursor, line.hdlen, c);
+	//printf("++ %d %d %d %d\r\n", line.idx, line.cursor, line.hdlen, c);
 	if (line.hdlen) {
 		line.state = readline_uphold(&line);
 	}
+	//printf("-- %d %d %d %d\r\n", line.idx, line.cursor, line.hdlen, c);
 	return NULL;
 }
 
@@ -194,6 +193,15 @@ static int readline_uphold(rdln_t *rdl)
 	int	i, n;
 
 	for (i = n = 0; line_cmd[i].cmd; i++) {
+		if (line_cmd[i].len == 1) {
+			if (line_cmd[i].cmd[0] != rdl->hold[0]) {
+				continue;
+			} else {
+				line_cmd[i].func(rdl);
+				rdl->hdlen = 0;
+				return RDL_APPEND;
+			}
+		}
 		if (!memcmp(line_cmd[i].cmd, rdl->hold, rdl->hdlen)) {
 			n++;
 		}
@@ -218,34 +226,35 @@ static int readline_insert(rdln_t *rdl, int c)
 		return 0;	/* line buffer full */
 	}
 	if (rdl->cursor == rdl->idx) {
-		rdl->lbuf[rdl->idx++] = (char) c;
-		rdl->lbuf[rdl->idx] = 0;
+		rdl->lbuf[rdl->idx] = (char) c;
+		rdl->lbuf[rdl->idx+1] = 0;
+		u_puts(&rdl->lbuf[rdl->idx++]);
+		rdl->cursor++;
 	} else {
 		memmove(&rdl->lbuf[rdl->cursor+1], &rdl->lbuf[rdl->cursor], 
 				rdl->idx - rdl->cursor + 1);
 		rdl->lbuf[rdl->cursor] = (char) c;
 		rdl->idx++;
+		readline_render(rdl, 0);
+		readline_cursor_right(rdl);
 	}
-	readline_render(rdl, 0);
-	rdl->cursor++;
-	CURSOR_RIGHT();
 	return 1;
 }
 
 static int readline_render(rdln_t *rdl, int curmove)
 {
-	char	buf[24];
+	char	buf[16];
 
 	if (curmove > 0) {		/* cursor move right */
-		sprintf(buf, "\033[%dC", curmove);
+		sprintf(buf, "\033[%dC", (unsigned char)curmove);
 		u_puts(buf);
 	} else if (curmove < 0) {	/* cursor move left */
-		sprintf(buf, "\033[%dD", - curmove);
+		sprintf(buf, "\033[%dD", (unsigned char)(- curmove));
 		u_puts(buf);
 	}
 	u_puts(&rdl->lbuf[rdl->cursor]);
 	if (rdl->idx > rdl->cursor) {
-		sprintf(buf, "\033[K\033[%dD", rdl->idx - rdl->cursor);
+		sprintf(buf, "\033[K\033[%dD", (unsigned char)(rdl->idx - rdl->cursor));
 	} else {
 		strcpy(buf, "\033[K");
 	}
@@ -309,10 +318,36 @@ static int readline_kill(rdln_t *rdl)
 	return readline_render(rdl, - c);
 }
 
+
+static int wedge(char c)
+{
+	if (isspace((int)((unsigned char)c)) || !c || (c == '.')) {
+		return 1;
+	}
+	return 0;
+}
+
+static int readline_word_erase(rdln_t *rdl)
+{
+	int	tmp = rdl->cursor;
+
+	if (!rdl->cursor) {
+		return 0;	/* nothing to erase */
+	}
+	while (rdl->cursor && wedge(rdl->lbuf[rdl->cursor])) rdl->cursor--;
+	while (rdl->cursor && !wedge(rdl->lbuf[rdl->cursor])) rdl->cursor--;
+	if (rdl->cursor) {	/* it must move to blank space */
+		rdl->cursor++;	/* so we adjust it back to word boundary */
+	}
+	memmove(&rdl->lbuf[rdl->cursor],  &rdl->lbuf[tmp], rdl->idx - tmp + 1);
+	rdl->idx -= (tmp - rdl->cursor);
+	return readline_render(rdl, rdl->cursor - tmp);
+}
+
 static int readline_cursor_left(rdln_t *rdl)
 {
 	if (rdl->cursor) {
-		CURSOR_LEFT();
+		u_puts("\033[1D");
 		rdl->cursor--;
 	}
 	return 0;
@@ -321,7 +356,7 @@ static int readline_cursor_left(rdln_t *rdl)
 static int readline_cursor_right(rdln_t *rdl)
 {
 	if (rdl->cursor < rdl->idx) {
-		CURSOR_RIGHT();
+		u_puts("\033[1C");
 		rdl->cursor++;
 	}
 	return 0;
@@ -329,18 +364,24 @@ static int readline_cursor_right(rdln_t *rdl)
 
 static int readline_cursor_home(rdln_t *rdl)
 {
-	while (rdl->cursor) {
-		CURSOR_LEFT();
-		rdl->cursor--;
+	char	buf[8];
+
+	if (rdl->cursor) {
+		sprintf(buf, "\033[%dD", (unsigned char)rdl->cursor);
+		u_puts(buf);
+		rdl->cursor = 0;
 	}
 	return 0;
 }
 
 static int readline_cursor_end(rdln_t *rdl)
 {
-	while (rdl->cursor < rdl->idx) {
-		CURSOR_RIGHT();
-		rdl->cursor++;
+	char	buf[8];
+
+	if (rdl->cursor < rdl->idx) {
+		sprintf(buf, "\033[%dC", (unsigned char)(rdl->idx - rdl->cursor));
+		u_puts(buf);
+		rdl->cursor = rdl->idx;
 	}
 	return 0;
 }
