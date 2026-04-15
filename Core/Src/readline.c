@@ -114,18 +114,26 @@ static	struct	{
 	int	len;
 	int	(*func)(rdln_t *rdl);
 } line_cmd[] = {
-	{ "\x8",	1, 	readline_backspace },
+	{ "\x8",	1, 	readline_backspace },	/* Ctrl-H / Backspace */
 	{ "\x7f",	1,	readline_backspace },
-	{ "\x15",	1,	readline_kill },
-	{ "\x1",	1,	readline_cursor_home },
-	{ "\x5",	1,	readline_cursor_end },
-	{ "\x1b[1~",	4,	readline_cursor_home },
+	{ "\x15",	1,	readline_kill },	/* Ctrl-U */
+	{ "\x1",	1,	readline_cursor_home },	/* Ctrl-A */
+	{ "\x5",	1,	readline_cursor_end },	/* Ctrl-E */
+	{ "\x17",	1,	readline_dummy },	/* Ctrl-W */
+	{ "\x1b[1~",	4,	readline_cursor_home },	/* Control Sequence Introducer (CSI) */
+	{ "\x1bO1~",	4,	readline_cursor_home },	/* Single Shift Select (SS3) */
 	{ "\x1b[H",	3,	readline_cursor_home },
+	{ "\x1bOH",	3,	readline_cursor_home },
 	{ "\x1b[4~",	4,	readline_cursor_end },
+	{ "\x1bO4~",	4,	readline_cursor_end },
 	{ "\x1b[F",	3,	readline_cursor_end },
+	{ "\x1bOF",	3,	readline_cursor_end },
 	{ "\x1b[C",	3,	readline_cursor_right },
+	{ "\x1bOC",	3,	readline_cursor_right },
 	{ "\x1b[D",	3,	readline_cursor_left },
+	{ "\x1bOD",	3,	readline_cursor_left },
 	{ "\x1b[3~",	4,	readline_delete },
+	{ "\x1bO3~",	4,	readline_delete },
 	{ "\x1b[2~",	4,	readline_dummy },	/* Insert */
 	{ "\x1b[5~",	4,	readline_dummy }, 	/* PageUp */
 	{ "\x1b[6~",	4,	readline_dummy }, 	/* PageDown */
@@ -153,6 +161,7 @@ char *readline(int c)
 		case 0x1:	/* Ctrl-A home */
 		case 0x5:	/* Ctrl-E end */
 		case 0x15:	/* Ctrl-U kill line */
+		case 0x17:	/* Ctrl-W delete word */
 			line.hold[line.hdlen++] = c;
 			line.state = RDL_HOLD;
 			break;
@@ -228,18 +237,19 @@ static int readline_render(rdln_t *rdl, int curmove)
 	char	buf[24];
 
 	if (curmove > 0) {		/* cursor move right */
-		sprintf(buf, "\033[%dC\033[K", curmove);
+		sprintf(buf, "\033[%dC", curmove);
+		u_puts(buf);
 	} else if (curmove < 0) {	/* cursor move left */
-		sprintf(buf, "\033[%dD\033[K", - curmove);
-	} else {	/* cursor stays - clear from current position */
+		sprintf(buf, "\033[%dD", - curmove);
+		u_puts(buf);
+	}
+	u_puts(&rdl->lbuf[rdl->cursor]);
+	if (rdl->idx > rdl->cursor) {
+		sprintf(buf, "\033[K\033[%dD", rdl->idx - rdl->cursor);
+	} else {
 		strcpy(buf, "\033[K");
 	}
 	u_puts(buf);
-	u_puts(&rdl->lbuf[rdl->cursor]);
-	if (rdl->idx > rdl->cursor) {
-		sprintf(buf, "\033[%dD", rdl->idx - rdl->cursor);
-		u_puts(buf);
-	}
 	return 0;
 }
 

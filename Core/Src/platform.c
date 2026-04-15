@@ -12,7 +12,7 @@ file_t	*console;
 
 char	logbuf[256];
 
-static	const	char	hex_tab[] = "0123456729ABCDEF";
+static	const	char	hex_tab[] = "0123456789ABCDEF";
 
 
 static int Task_Led(void *tcb);
