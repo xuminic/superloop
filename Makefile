@@ -146,12 +146,19 @@ attach:
 readline: Core/Src/readline.c
 	gcc -Wall -DEXECUTABLE -o $@ $<
 
+crc: Core/Src/crc16.c
+	gcc -Wall -DEXECUTABLE -o $@ $<
+
+led: Core/Src/led.c
+	gcc -Wall -DEXECUTABLE -o $@ $<
+
+
 ############################################
 # Clean
 ############################################
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD)/* readline crc
 
 ############################################
 # Dependencies

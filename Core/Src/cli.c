@@ -16,6 +16,7 @@ static	cli_t	cmdtab[] = {
 	{ "help", cli_help, "the common help" },
 	{ "echo", cli_echo, "the echo function" },
 	{ "dump", cli_dump, "dump the memory" },
+	{ "led", led_command, "LED manager" },
 	{ NULL, NULL, NULL }
 };
 

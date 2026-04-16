@@ -26,6 +26,7 @@ void platform_init(void *tty)
 	//HAL_UART_Transmit_DMA(tty, "Hell \r\n", 7);
 	//HAL_Delay(100);
 
+	led_init(GPIO_PIN_13);
 	console = uart_open(tty);
 	
 	printf("\r\nSTM32 Time-Triggered Co-operative Super-Loop.\r\n");
@@ -36,7 +37,7 @@ void platform_init(void *tty)
 }
 
 
-
+/*
 static uint32_t tickcnt = 0;
 static int Task_Led(void *tcb)
 {
@@ -48,7 +49,12 @@ static int Task_Led(void *tcb)
 	}
 	return 0;
 }
-
+*/
+static int Task_Led(void *tcb)
+{
+	led_tick();
+	return 0;
+}
 
 
 int u_puts(char *s)

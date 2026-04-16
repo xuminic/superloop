@@ -46,6 +46,17 @@ int cli_main(cli_t *ctab, char *s);
 int modbus_crc16(char *buf, int len);
 int modbus_crc_armour(char *buf, int len);
 
+/* led.c */
+void *led_open(int gpio);
+void led_close(void *led);
+int led_telegram(void *led, char *s);
+int led_ticker(void *led, char *s);
+int led_pwm_light(void *led, int duty);
+int led_pwm_breath(void *led, int step, int ticks);
+void led_tick(void);
+void led_init(int gpio);
+int led_command(int argc, char **argv);
+
 /* readline.c */
 char *readline(int c);
 
