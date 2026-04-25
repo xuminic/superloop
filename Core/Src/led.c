@@ -8,13 +8,9 @@
 #ifndef	EXECUTABLE
 #include "main.h"
 #endif
-#include "platform.h"
+#include "led.h"
 
-
-#define CFG_LED_NUMBER		1	/* define the number of managed LEDs */
-#define CFG_LED_RINGBUF		16	/* define the size of the ring buffer */
-#define CFG_LED_TICK		100	/* define the ticks for 1T: if 1 tick = 1ms, then 100ms */
-
+extern int u_puts(char *s);
 
 #define MOREARG(c,v)    {       \
         --(c), ++(v); \
@@ -45,37 +41,23 @@ static	const	uint32_t	morse32[128] = {
 };
 
 
-typedef	struct	{
-	int	gpio;	/* the gpio to drive the LED */
-
-	int	acc;	/* Bresenham PWM accumulator: lowest priority */
-	int	duty;	/* 0-100 */
-	int	step;	/* step of dynamic duty */
-	int	hold;	/* duty holding time: 0 = disabled */
-	int	dcnt;	/* holding time counter: matching = change duty */
-
-	uint32_t code;	/* current encoded morse letter */
-	int	pos;	/* current symbol position in the morse letter */
-	int	ticks;	/* counting dow ticks for the current symbol */
-
-	char	ringbuf[CFG_LED_RINGBUF];
-	int	rblen;	/* length of content in the ring buffer */
-	int	rbnow;	/* current letter in the ring buffer */
-
-	char	*telegram;	/* higher priority than the ring buffer */
-} led_t;
-
-
 static	led_t	ledtab[CFG_LED_NUMBER];
-static	char	led_msg_buffer[128];
 
 static void led_morse(led_t *m);
 static void led_reload(led_t *m);
 static void led_pwm(led_t *l);
-static void led_toggler(led_t *l, int sw);
+
+static void led_toggler(led_t *l, int sw)
+{
+#ifdef  EXECUTABLE
+	u_puts(sw ? "#\b" : " \b");
+#else
+	HAL_GPIO_WritePin(GPIOG, l->gpio, sw ? GPIO_PIN_SET : GPIO_PIN_RESET);
+#endif
+}
 
 
-void *led_open(int gpio)
+led_t *led_open(int gpio)
 {
 	int	i;
 
@@ -89,19 +71,19 @@ void *led_open(int gpio)
 	return NULL;
 }
 
-void led_close(void *led)
+void led_close(led_t *led)
 {
 	memset(led, 0, sizeof(led_t));
 }
 
-int led_telegram(void *led, char *s)
+int led_telegram(led_t *led, char *s)
 {
 	((led_t*)led)->telegram = s;
 	led_reload(led);
 	return s == NULL ? 0 : strlen(s);
 }
 
-int led_ticker(void *led, char *s)
+int led_ticker(led_t *led, char *s)
 {
 	if (!s || !*s) {
 		((led_t*)led)->rblen = 0;
@@ -116,14 +98,14 @@ int led_ticker(void *led, char *s)
 	return ((led_t*)led)->rblen;
 }
 
-int led_pwm_light(void *led, int duty)
+int led_pwm_light(led_t *led, int duty)
 {
 	((led_t*)led)->acc  = 0;
 	((led_t*)led)->duty = duty > 100 ? 100 : duty;
 	return ((led_t*)led)->duty;
 }
 
-int led_pwm_breath(void *led, int step, int ticks)
+int led_pwm_breath(led_t *led, int step, int ticks)
 {
 	((led_t*)led)->acc  = 0;
 	((led_t*)led)->step = ((led_t*)led)->duty = step > 50 ? 50 : step;
@@ -132,7 +114,7 @@ int led_pwm_breath(void *led, int step, int ticks)
 	return 0;
 }
 
-void led_tick(void)
+int led_tick(void *tcb)
 {
 	int	i;
 
@@ -146,6 +128,7 @@ void led_tick(void)
 			led_pwm(&ledtab[i]);
 		}
 	}
+	return 0;
 }
 
 static void led_morse(led_t *m)
@@ -249,6 +232,7 @@ OPTION:\r\n\
 
 int led_command(int argc, char **argv)
 {
+	static	char	led_msg_buffer[128];
 	void	*led = &ledtab[0];
 	int	i, duty, step, sdur, todo = 0;
 
@@ -317,28 +301,10 @@ void led_init(int gpio)
 }
 
 
-#ifdef  EXECUTABLE
-#include <unistd.h>
-static void led_toggler(led_t *l, int sw)
-{
-	if (sw) {
-		write(1, "#\b", 2);
-	} else {
-		write(1, " \b", 2);
-	}
-}
-#else
-static void led_toggler(led_t *l, int sw)
-{
-	if (sw) {
-		HAL_GPIO_WritePin(GPIOG, l->gpio, GPIO_PIN_SET);
-	} else {
-		HAL_GPIO_WritePin(GPIOG, l->gpio, GPIO_PIN_RESET);
-	}
-}
-#endif
-
 #ifdef	EXECUTABLE
+#include <unistd.h>
+#include <time.h>
+
 /* https://www.itu.int/dms_pubrec/itu-r/rec/m/R-REC-M.1677-1-200910-I!!PDF-E.pdf */
 static	const	struct {
 	uint8_t	ch;
@@ -472,9 +438,6 @@ int u_puts(char *s)
 	return write(1, s, strlen(s));
 }
 
-
-#include <time.h>
-
 int main(int argc, char **argv)
 {
 	struct	timespec ts;
@@ -490,11 +453,10 @@ int main(int argc, char **argv)
 	ts.tv_sec = 0;
 	ts.tv_nsec = 1 * 1000 * 1000; /* 1ms */
 	while (1) {
-                led_tick();
+                led_tick(NULL);
 		nanosleep(&ts, NULL);
 	}
 	return 0;
 }
-
 #endif
 

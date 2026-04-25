@@ -8,17 +8,16 @@
 #include "platform.h"
 
 
-file_t	*console;
+static	tty_t	console;
 
-char	logbuf[256];
-
-static	const	char	hex_tab[] = "0123456789ABCDEF";
-
-
-static int Task_Led(void *tcb);
+static	char	*splash = "\r\n\
+STM32 Time-Triggered Co-operative Super-Loop.\r\n\
+#> ";
 
 void platform_init(void *tty)
 {
+	tcb_t	*tcb;
+
 	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_13, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_14, GPIO_PIN_SET);
 
@@ -27,42 +26,47 @@ void platform_init(void *tty)
 	//HAL_Delay(100);
 
 	led_init(GPIO_PIN_13);
-	console = uart_open(tty);
+
+	console.uart = uart_open(tty);
+	readline_init(&console.readline);
 	
-	printf("\r\nSTM32 Time-Triggered Co-operative Super-Loop.\r\n");
-	sloop_task_create(Task_Led, 1, 0, NULL);
+	sloop_task_create(led_tick, 1, 0, NULL);
 
-	cli_init();
-	sloop_task_create(cli_task, 10, 0, NULL);
+	uart_write(console.uart, splash, strlen(splash));
+	tcb = sloop_task_create(cli_task, 10, 0, NULL);
+	tcb->extension = &console;
 }
 
-
-/*
-static uint32_t tickcnt = 0;
-static int Task_Led(void *tcb)
+tty_t *u_gettty(void)
 {
-	if (++tickcnt >= 1000) tickcnt = 0;
-	if (tickcnt < 100) {
-		HAL_GPIO_WritePin(GPIOG, GPIO_PIN_13, GPIO_PIN_SET);
+	tcb_t	*tcb;
+	tty_t	*tty = NULL;
+
+	if ((tcb = sloop_get_tcb()) == NULL) {
+		uart_write(console.uart, "*", 1);
+		//tty = &console;
+	} else if (tcb->extension == NULL) {
+		uart_write(console.uart, "#", 1);
+		//tty = &console;
 	} else {
-		HAL_GPIO_WritePin(GPIOG, GPIO_PIN_13, GPIO_PIN_RESET);
+		tty = tcb->extension;
 	}
-	return 0;
-}
-*/
-static int Task_Led(void *tcb)
-{
-	led_tick();
-	return 0;
+	return tty;
 }
 
 
 int u_puts(char *s)
 {
-	int	n = strlen(s);
+	tty_t	*tty;
+	int	n;
 
-	uart_write(console, s, n);
-	while (console->state & FCMD_SEND) {
+	if ((tty = u_gettty()) == NULL) {
+		return -1;
+	}
+
+	n = strlen(s);
+	uart_write(tty->uart, s, n);
+	while (tty->uart->state & FCMD_SEND) {
 		sloop_dispatch();
 	}
 	return n;
@@ -70,14 +74,20 @@ int u_puts(char *s)
 
 int u_printf(char *fmt, ...)
 {
+	tty_t	*tty;
 	va_list ap;
 	int	n;
+	
+	if ((tty = u_gettty()) == NULL) {
+		return -1;
+	}
 
 	va_start(ap, fmt);
-	n = vsnprintf(logbuf, sizeof(logbuf), fmt, ap);
+	n = vsnprintf(tty->logbuf, sizeof(tty->logbuf), fmt, ap);
 	va_end(ap);
-	uart_write(console, logbuf, n);
-	while (console->state & FCMD_SEND) {
+	
+	uart_write(tty->uart, tty->logbuf, n);
+	while (tty->uart->state & FCMD_SEND) {
 		sloop_dispatch();
 	}
 	return n;
@@ -86,18 +96,22 @@ int u_printf(char *fmt, ...)
 
 int __io_putchar(int ch) 
 {
+	tty_t	*tty;
 	char	buf[4];
 
+	if ((tty = u_gettty()) == NULL) {
+		return -1;
+	}
 	if (ch == '\n') {
 		buf[0] = '\r', buf[1] = '\n';
 		//HAL_UART_Transmit(console, (uint8_t *)buf, 2, HAL_MAX_DELAY);
-		uart_write(console, buf, 2);
+		uart_write(tty->uart, buf, 2);
 	} else {
 		buf[0] = (char)ch;
 		//HAL_UART_Transmit(console, (uint8_t *)buf, 1, HAL_MAX_DELAY);
-		uart_write(console, buf, 1);
+		uart_write(tty->uart, buf, 1);
 	}
-	while (console->state & FCMD_SEND) {
+	while (tty->uart->state & FCMD_SEND) {
 		sloop_dispatch();
 	}
 	return ch;
@@ -105,12 +119,17 @@ int __io_putchar(int ch)
 
 int __io_getchar(void)
 {
+	tty_t	*tty;
 	char	ch[4];
+
+	if ((tty = u_gettty()) == NULL) {
+		return -1;
+	}
 
 	/* Clear the Overrun flag (ORE) before receiving.
 	 * If data was sent while the MCU wasn't listening,
 	 * the UART will lock up unless this flag is cleared. */
-	__HAL_UART_CLEAR_OREFLAG((UART_HandleTypeDef*)console->handler);
+	__HAL_UART_CLEAR_OREFLAG((UART_HandleTypeDef*)tty->uart->handler);
 
 	/* Polling mode:
 	 * - &ch: address to store the byte
@@ -119,8 +138,8 @@ int __io_getchar(void)
 	/*if (HAL_UART_Receive(console, ch, 1, HAL_MAX_DELAY) != HAL_OK) {
 		return EOF;
 	}*/
-	uart_read(console, ch, 1);
-	while (!uart_read(console, NULL, 0)) {
+	uart_read(tty->uart, ch, 1);
+	while (!uart_read(tty->uart, NULL, 0)) {
 		sloop_dispatch();
 	}
 	
@@ -130,43 +149,32 @@ int __io_getchar(void)
 }
 
 
-/* 00000000-  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................\r\n
-   index:  0         11 (Hex)                              61 (ASCII) */
-void hexdump(char *s, int len) 
+#ifdef	SIMULATION
+#include <pthread.h>
+
+static void *sim_timer(void* arg)  
 {
-	char	*bp;
-	int 	i, n;
+	struct timespec sleep_ts = {0, 1000000}; /* 1ms */
 
-	bp = (char*)(((unsigned long) s) & ~0xf);
-	while (bp < s + len) {
-        	/* initialize the template */
-        	memset(logbuf, ' ', sizeof(logbuf));
-        	logbuf[8]  = '-';
-        	logbuf[60] = ' ';
-        	logbuf[77] = '\r';
-        	logbuf[78] = '\n';
-		logbuf[79] = 0;
-
-        	/* fill the address section: if 64-bit address we only show 32 bits */
-        	for (n = (int) bp, i = 7; i >= 0; i--, n >>= 4) {
-			logbuf[i] = hex_tab[n & 0xf];
-		}
-
-		/* fill the hex section */
-		for (i = 0; i < 16; i++, bp++) {
-			if ((bp < s) || (bp >= s + len)) {
-				continue;
-			}
-			
-			/* filling the Hex part */
-			n = 11 + (i * 3) + (i > 7 ? 1 : 0);
-			logbuf[n]   = hex_tab[(*bp >> 4) & 0xf];
-			logbuf[n+1] = hex_tab[*bp & 0xf];
-
-			/* filling the ASCII part */
-			logbuf[61 + i] = isprint((int)*bp) ? *bp : '.';
-		}
-		u_puts(logbuf);
+	while (1) {
+		nanosleep(&sleep_ts, NULL);
+		sloop_tick();
 	}
 }
 
+int main(int argc, char **argv)
+{
+	pthread_t	thread_id;
+	struct timespec sleep_ts = {0, 1000000}; /* 1ms */
+
+	pthread_create(&thread_id, NULL, sim_timer, NULL);
+
+	platform_init(NULL);
+	while (1) {
+		sloop_dispatch();
+		nanosleep(&sleep_ts, NULL);
+	}
+	return 0;
+}
+
+#endif

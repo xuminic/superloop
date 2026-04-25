@@ -143,8 +143,8 @@ gdb:
 attach:
 	$(GDB) -ex "target remote localhost:3333" $(BUILD)/$(TARGET).elf
 
-readline: Core/Src/readline.c
-	gcc -Wall -DEXECUTABLE -o $@ $<
+readline: Core/Src/readline.c Core/Src/history.c
+	gcc -Wall -DEXECUTABLE -o $@ $^
 
 crc: Core/Src/crc16.c
 	gcc -Wall -DEXECUTABLE -o $@ $<

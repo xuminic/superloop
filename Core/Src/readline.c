@@ -68,34 +68,25 @@ Ctrl-E	移至行尾	0x05 (ENQ)	(常用但在 Readline 中定义)
 #include <stdlib.h>
 #include <string.h>
 
-#include "platform.h"
+#include "readline.h"
 
 
-#define CFG_RDLN_BUFFER		128
-#define CFG_RDLN_HISTORY	32
-#define CFG_RDLN_HPOOL		(CFG_RDLN_HISTORY * 32)
+#define RDL_APPEND	0
+#define RDL_HOLD	1
+#define RDL_STATMSK	0xf
+#define RDL_REPLACE	0x10	/* 0: insert mode 1: replace mode */
 
-#define RDL_APPEND		0
-#define RDL_HOLD		1
-#define RDL_STATMSK		0xf
-#define RDL_REPLACE		0x10	/* 0: insert mode 1: replace mode */
+#define GETSTAT(n)	((n) & RDL_STATMSK)
+#define SETSTAT(n,s)	(((n) & ~RDL_STATMSK) | (s))
 
 
-typedef	struct	{
-	char	lbuf[CFG_RDLN_BUFFER];
-	int	idx;
-	int	cursor;
-	int	state;
-	char	hold[8];
-	int	hdlen;
-#if	CFG_RDLN_HISTORY > 0
-	char	*hist[CFG_RDLN_HISTORY];
-	int	hnow;
-	char	hpool[CFG_RDLN_HPOOL];
+#ifdef	EXECUTABLE
+#include <unistd.h>
+#define	u_puts(s)	write(STDOUT_FILENO, (s), strlen(s))
+#else
+extern	int u_puts(char *s);
 #endif
-} rdln_t;
 
-static	rdln_t	line;
 
 static int readline_uphold(rdln_t *rdl);
 static int readline_insert(rdln_t *rdl, int c);
@@ -109,6 +100,11 @@ static int readline_cursor_left(rdln_t *rdl);
 static int readline_cursor_right(rdln_t *rdl);
 static int readline_cursor_home(rdln_t *rdl);
 static int readline_cursor_end(rdln_t *rdl);
+
+#if	(CFG_HISTORY_ITEMS > 0)
+static int readline_history_up(rdln_t *rdl);
+static int readline_history_down(rdln_t *rdl);
+#endif
 	
 static	struct	{
 	char	*cmd;
@@ -136,21 +132,34 @@ static	struct	{
 	{ "\x1b[3~",	4,	readline_delete },
 	{ "\x1bO3~",	4,	readline_delete },
 	{ "\x1b[2~",	4,	readline_dummy },	/* Insert */
-	{ "\x1b[5~",	4,	readline_dummy }, 	/* PageUp */
-	{ "\x1b[6~",	4,	readline_dummy }, 	/* PageDown */
+#if	(CFG_HISTORY_ITEMS > 0)
+	{ "\x6",        1,      readline_history_dump }, /* Ctrl-F */
+	{ "\x1b[5~",	4,	readline_history_up }, 	/* PageUp */
+	{ "\x1bO5~",	4,	readline_history_up }, 	/* PageUp */
+	{ "\x1b[6~",	4,	readline_history_down }, /* PageDown */
+	{ "\x1bO6~",	4,	readline_history_down }, /* PageDown */
+	{ "\x1b[A",	3,	readline_history_up },
+	{ "\x1bOA",	3,	readline_history_up },
+	{ "\x1b[B",	3,	readline_history_down },
+	{ "\x1bOB",	3,	readline_history_down },
+#endif
 	{ 0, 0, NULL }
 };
 
 
-void *readline_init(void)
+void *readline_init(rdln_t *rdl)
 {
-	memset(&line, 0, sizeof(rdln_t));
-	return &line;
+	memset(rdl, 0, sizeof(rdln_t));
+#if	(CFG_HISTORY_ITEMS > 0)
+	history_init(&rdl->history);
+#endif
+	return rdl;
 }
 
-char *readline(int c)
+
+char *readline(rdln_t *rdl, int c)
 {
-	switch (line.state) {
+	switch (GETSTAT(rdl->state)) {
 	case RDL_APPEND:
 		switch (c) {
 		case 0x1b:	/* ESCAPE */
@@ -158,33 +167,38 @@ char *readline(int c)
 		case 0x7f:	/* delete */
 		case 0x1:	/* Ctrl-A home */
 		case 0x5:	/* Ctrl-E end */
+		case 0x6:	/* Ctrl-F history */
 		case 0x15:	/* Ctrl-U kill line */
 		case 0x17:	/* Ctrl-W delete word */
-			line.hold[line.hdlen++] = c;
-			line.state = RDL_HOLD;
+			rdl->hold[rdl->hdlen++] = c;
+			rdl->state = SETSTAT(rdl->state, RDL_HOLD);
 			break;
 		case '\r':
 		case '\n':
 			u_puts("\r\n");
-                        line.lbuf[line.idx] = 0;
-			line.idx = line.cursor = 0;
-			return line.lbuf;
+                        rdl->lbuf[rdl->idx] = 0;
+			rdl->idx = rdl->cursor = 0;
+#if	(CFG_HISTORY_ITEMS > 0)
+			history_add(&rdl->history, rdl->lbuf);
+			history_reset(&rdl->history);
+#endif
+			return rdl->lbuf;
 		default:
 			if (isprint(c)) {
-				readline_insert(&line, c);
+				readline_insert(rdl, c);
 			}
 		}
 		break;
 
 	case RDL_HOLD:
-		line.hold[line.hdlen++] = c;
+		rdl->hold[rdl->hdlen++] = c;
 		break;
 	}
-	//printf("++ %d %d %d %d\r\n", line.idx, line.cursor, line.hdlen, c);
-	if (line.hdlen) {
-		line.state = readline_uphold(&line);
+	//printf("++ %d %d %d %d\r\n", rdl->idx, rdl->cursor, rdl->hdlen, c);
+	if (rdl->hdlen) {
+		rdl->state = SETSTAT(rdl->state, readline_uphold(rdl));
 	}
-	//printf("-- %d %d %d %d\r\n", line.idx, line.cursor, line.hdlen, c);
+	//printf("-- %d %d %d %d\r\n", rdl->idx, rdl->cursor, rdl->hdlen, c);
 	return NULL;
 }
 
@@ -222,13 +236,14 @@ static int readline_uphold(rdln_t *rdl)
 
 static int readline_insert(rdln_t *rdl, int c)
 {
-	if (rdl->idx >= CFG_RDLN_BUFFER) {
+	if (rdl->idx >= CFG_READLINE_BUFFER) {
 		return 0;	/* line buffer full */
 	}
 	if (rdl->cursor == rdl->idx) {
 		rdl->lbuf[rdl->idx] = (char) c;
 		rdl->lbuf[rdl->idx+1] = 0;
-		u_puts(&rdl->lbuf[rdl->idx++]);
+		u_puts(&rdl->lbuf[rdl->idx]);
+		rdl->idx++;
 		rdl->cursor++;
 	} else {
 		memmove(&rdl->lbuf[rdl->cursor+1], &rdl->lbuf[rdl->cursor], 
@@ -386,13 +401,61 @@ static int readline_cursor_end(rdln_t *rdl)
 	return 0;
 }
 
+#if	(CFG_HISTORY_ITEMS > 0)
+static int readline_history_up(rdln_t *rdl)
+{
+	hist_t	*hp = &rdl->history;
+	int	n;
+
+	if ((n = history_copy_backward(hp, rdl->lbuf, CFG_READLINE_BUFFER)) > 0) {
+		rdl->idx = n - 1;	/* offset from the tailing '\0' */
+		n = rdl->cursor;
+		rdl->cursor = 0;
+		readline_render(rdl, -n);
+		readline_cursor_end(rdl);
+	}
+	return 0;
+}
+
+static int readline_history_down(rdln_t *rdl)
+{
+	hist_t	*hp = &rdl->history;
+	int	n;
+
+	if ((n = history_copy_forward(hp, rdl->lbuf, CFG_READLINE_BUFFER)) > 0) {
+		rdl->idx = n - 1;
+		n = rdl->cursor;
+		rdl->cursor = 0;
+		readline_render(rdl, -n);
+		readline_cursor_end(rdl);
+	}
+	return 0;
+}
+
+int readline_history_dump(rdln_t *rdl)
+{
+	hist_t	*hp = &rdl->history;
+	char	buf[CFG_READLINE_BUFFER+8];
+	int	i;
+
+	u_puts("\r\n");
+	for (i = hp->h_count - 1; i >= 0; i--) {
+		sprintf(buf, "%2d", i);
+		strcat(buf, "  ");
+		history_copy(hp, i, buf+4, CFG_READLINE_BUFFER);
+		strcat(buf, "\r\n");
+		u_puts(buf);
+	}
+	return 0;
+}
+#endif	/* CFG_HISTORY_ITEMS */
+
 
 #ifdef	EXECUTABLE
 /* Build: gcc -Wall -DEXECUTABLE -o readline readline.c  */
 
 
 #include <time.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <signal.h>
@@ -405,13 +468,9 @@ void handle_sigint(int sig)
 	exit(0);
 }
 
-int u_puts(char *s)
-{
-	return write(STDOUT_FILENO, s, strlen(s));
-}
-
 int main()
 {
+	rdln_t	rdl;
 	char	*s, ch[4];
 	int	flags;
 
@@ -427,14 +486,14 @@ int main()
 	flags = fcntl(STDIN_FILENO, F_GETFL, 0);
         fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
-	readline_init();
+	readline_init(&rdl);
 	u_puts("PS1> ");
 	while (1) {
 		if (read(STDIN_FILENO, ch, 1) < 1) {
 			usleep(100);
 			continue;
 		}
-		if ((s = readline(ch[0])) != NULL) {
+		if ((s = readline(&rdl, ch[0])) != NULL) {
 			puts(s);
 			u_puts("PS1> ");
 		}

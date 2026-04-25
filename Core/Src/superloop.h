@@ -38,12 +38,15 @@ typedef int (*task_f)(void *);
 typedef	struct	{
 	task_f		entry;
 	unsigned	flags;
-	unsigned	elaps;      /* current tick counting */
-	unsigned	period;     /* period of scheduling the task */
+	unsigned	elaps;		/* current tick counting */
+	unsigned	period;		/* period of scheduling the task */
+	unsigned	s_count;	/* schedule counter */
 
 #if	defined(CFG_SLP_TASK_NAME) && (CFG_SLP_TASK_NAME > 0)
 	char		name[CFG_SLP_TASK_NAME];
 #endif
+	void		*p_tcb;		/* parent's tcb */
+	void		*extension;
 } tcb_t;
 
 
@@ -52,6 +55,7 @@ void sloop_tick(void);
 void sloop_dispatch(void);
 tcb_t *sloop_task_create(task_f task, int period, int sched, char *name);
 void sloop_task_kill(tcb_t *task);
+tcb_t *sloop_get_tcb(void);
 
 #ifdef __cplusplus
 } // __cplusplus defined.

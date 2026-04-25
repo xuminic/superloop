@@ -14,6 +14,8 @@
 
 #include "superloop.h"
 #include "ddpoll.h"
+#include "led.h"
+#include "readline.h"
 
 
 #ifdef __cplusplus
@@ -27,12 +29,16 @@ typedef	struct	{
 	char	*usage;
 } cli_t;
 
+typedef struct	{
+	file_t	*uart;
+	rdln_t	readline;
+	char	logbuf[256];
+} tty_t;
+
 
 /* platform.c */
-extern	file_t  *console;
-extern	char	logbuf[256];
-
 void platform_init(void *tty);
+tty_t *u_gettty(void);
 int u_puts(char *s);
 int u_printf(char *fmt, ...);
 void hexdump(char *s, int len);
@@ -45,20 +51,6 @@ int cli_main(cli_t *ctab, char *s);
 /* crc16.c */
 int modbus_crc16(char *buf, int len);
 int modbus_crc_armour(char *buf, int len);
-
-/* led.c */
-void *led_open(int gpio);
-void led_close(void *led);
-int led_telegram(void *led, char *s);
-int led_ticker(void *led, char *s);
-int led_pwm_light(void *led, int duty);
-int led_pwm_breath(void *led, int step, int ticks);
-void led_tick(void);
-void led_init(int gpio);
-int led_command(int argc, char **argv);
-
-/* readline.c */
-char *readline(int c);
 
 /* uart.c */
 //void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart);

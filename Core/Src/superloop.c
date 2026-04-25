@@ -8,9 +8,18 @@
 #include "superloop.h"
 
 static	tcb_t		sloop_tcb[CFG_SLP_TASK_MAX];
+static	tcb_t		*sloop_now;
 static	int		sloop_idx = 0;
-static	unsigned long	sloop_ticks = 0;
+static	unsigned	sloop_ticks = 0;
 
+
+void sloop_lock(void)
+{
+}
+
+void sloop_unlock(void)
+{
+}
 
 /* scheduler tick: called by timer ISR */
 void sloop_tick(void)
@@ -43,24 +52,36 @@ void sloop_tick(void)
 void sloop_dispatch(void) 
 {
 	register tcb_t	*task;
+	register unsigned c_cnt;
 
 	task = &sloop_tcb[sloop_idx++];
 	if (sloop_idx >= CFG_SLP_TASK_MAX) {
 		sloop_idx = 0;
 	}
 
+	sloop_lock();
 	if (task->flags & SLOOP_STAT_BLOCK) {
 		//printf("task %p blocked\n", task);
 	} else if (SLOOP_RUNME(task)) {
+		task->p_tcb = sloop_now;
+		sloop_now = task;
+		c_cnt = sloop_ticks;
 		task->flags |= SLOOP_STAT_BLOCK;
+		sloop_unlock();
+
 		task->entry(task);
+		
+		sloop_lock();
 		task->flags &= ~SLOOP_STAT_BLOCK;
 		SLOOP_RUNDEC(task);
+		task->s_count += sloop_ticks - c_cnt + 1;
 		
 		if (task->flags & SLOOP_STAT_ZOMBIE) {
 			sloop_task_kill(task);
 		}
+		sloop_now = task->p_tcb;
 	}
+	sloop_unlock();
 }
 
 
@@ -92,3 +113,7 @@ void sloop_task_kill(tcb_t *task)
 	task->entry = (void*) 0;
 }
 
+tcb_t *sloop_get_tcb(void)
+{
+	return sloop_now;
+}

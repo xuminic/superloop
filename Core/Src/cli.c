@@ -12,7 +12,14 @@ static int cli_help(int argc, char **argv);
 static int cli_echo(int argc, char **argv);
 static int cli_dump(int argc, char **argv);
 
+#if	(CFG_HISTORY_ITEMS > 0)
+static int cli_history(int argc, char **argv);
+#endif
+
 static	cli_t	cmdtab[] = {
+#if	(CFG_HISTORY_ITEMS > 0)
+	{ "!",    cli_history, "history command" },
+#endif
 	{ "help", cli_help, "the common help" },
 	{ "echo", cli_echo, "the echo function" },
 	{ "dump", cli_dump, "dump the memory" },
@@ -22,18 +29,17 @@ static	cli_t	cmdtab[] = {
 
 
 
-void cli_init(void)
-{
-	u_puts("#> ");
-}
-
-
 int cli_task(void *tcb)
 {
+	tty_t	*tty;
 	char	c[4], *s;
 	
-	if (uart_read(console, c, 1)) {
-		if ((s = readline(c[0])) != NULL) {
+	tty = ((tcb_t *)tcb)->extension;
+
+	if (uart_read(tty->uart, c, 1)) {
+		//uart_write(tty->uart, c, 1);
+		
+		if ((s = readline(&tty->readline, c[0])) != NULL) {
 			cli_main(NULL, s);
 			u_puts("#> ");
 		}
@@ -96,8 +102,13 @@ static int cli_mkargs(char *s, char **argv, int argv_len)
 
 static int cli_help(int argc, char **argv)
 {
+	tty_t	*tty;
 	cli_t	*ctab;
 	int	i, n, wid;
+
+	if ((tty = u_gettty()) == NULL) {
+		return -1;
+	}
 
 	ctab = cmdtab;
 	for (i = wid = 0; ctab[i].func; i++) {
@@ -107,11 +118,11 @@ static int cli_help(int argc, char **argv)
 	wid = (wid + 15) / 8 * 8;
 
 	for (i = 0; ctab[i].func; i++) {
-		memset(logbuf, ' ', sizeof(logbuf));
-		memcpy(logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
-		memcpy(logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
-		strcat(logbuf, "\r\n");
-		u_puts(logbuf);		
+		memset(tty->logbuf, ' ', sizeof(tty->logbuf));
+		memcpy(tty->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
+		memcpy(tty->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
+		strcat(tty->logbuf, "\r\n");
+		u_puts(tty->logbuf);		
 	}
 	return 0;
 }
@@ -170,3 +181,27 @@ static int cli_dump(int argc, char **argv)
 	return 0;
 }
 	
+#if	(CFG_HISTORY_ITEMS > 0)
+static int cli_history(int argc, char **argv)
+{
+	tty_t	*tty;
+	rdln_t	*rdl;
+	int	i;
+
+	if ((tty = u_gettty()) == NULL) {
+		return -1;
+	}
+	rdl = &tty->readline;
+
+	if (argc < 2) {
+		return readline_history_dump(rdl);
+	}
+
+	i = (int)strtol(argv[1], NULL, 0);
+	if (history_copy(&rdl->history, i, rdl->lbuf, CFG_READLINE_BUFFER) > 0) {
+		return cli_main(NULL, rdl->lbuf);	
+	}	
+	return -2;
+}
+#endif
+
