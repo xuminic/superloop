@@ -41,6 +41,7 @@ ASM_SOURCES = Core/Startup/startup_stm32f429zitx.s
 ############################################
 
 INCLUDES = -I./Core/Inc \
+	   -I./Core/Src \
 	   -I./Drivers/STM32F4xx_HAL_Driver/Inc \
 	   -I./Drivers/STM32F4xx_HAL_Driver/Inc/Legacy \
 	   -I./Drivers/CMSIS/Device/ST/STM32F4xx/Include \

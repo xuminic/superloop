@@ -8,12 +8,12 @@
 
 
 static int cli_mkargs(char *s, char **argv, int argv_len);
-static int cli_help(int argc, char **argv);
-static int cli_echo(int argc, char **argv);
-static int cli_dump(int argc, char **argv);
+static int cli_help(void *xtcb, int argc, char **argv);
+static int cli_echo(void *xtcb, int argc, char **argv);
+static int cli_dump(void *xtcb, int argc, char **argv);
 
 #if	(CFG_HISTORY_ITEMS > 0)
-static int cli_history(int argc, char **argv);
+static int cli_history(void *xtcb, int argc, char **argv);
 #endif
 
 static	cli_t	cmdtab[] = {
@@ -29,44 +29,37 @@ static	cli_t	cmdtab[] = {
 
 
 
-int cli_task(void *tcb)
+int cli_task(void *taskarg)
 {
-	tty_t	*tty;
-	char	c[4], *s;
-	
-	tty = ((tcb_t *)tcb)->extension;
+	xtcb_t	*xtcb = taskarg;
+	char	c[4], *s, *argv[CFG_CLI_MAX_PARAM];
+	int	argc;
 
-	if (uart_read(tty->uart, c, 1)) {
-		//uart_write(tty->uart, c, 1);
-		
-		if ((s = readline(&tty->readline, c[0])) != NULL) {
-			cli_main(NULL, s);
-			u_puts("#> ");
+	if (uart_read_nonblock(xtcb->uart, c, 1) > 0) {
+		if ((s = readline(xtcb->readline, c[0])) != NULL) {
+			argc = cli_mkargs(s, argv, CFG_CLI_MAX_PARAM);
+			if (argc) {
+				cli_main(taskarg, cmdtab, argc, argv);
+			}
+			task_puts(xtcb, "#> ");
 		}
 	}
 	return 0;
 }
 
-int cli_main(cli_t *ctab, char *s)
+int cli_main(void *taskarg, cli_t *ctab, int argc, char **argv)
 {
-	char	*argv[CFG_CLI_MAX_PARAM];
-	int	i, argc;
-
-	if (ctab == NULL) {
-		ctab = cmdtab;
-	}
-
-	argc = cli_mkargs(s, argv, CFG_CLI_MAX_PARAM);
-	if (argc == 0) {
-		return 0;
-	}
+	int	i;
 
 	for (i = 0; ctab[i].func; i++) {
 		if (!strcmp(ctab[i].cmd, argv[0])) {
-			return ctab[i].func(argc, argv);
+			return ctab[i].func(taskarg, argc, argv);
+		}
+		if (!strcmp(ctab[i].cmd, "+")) {
+			return cli_main(taskarg, ctab[i].usage, argc, argv);
 		}
 	}
-	printf("%s: command not found\n", argv[0]);
+	task_printf(taskarg, "%s: command not found\r\n", argv[0]);
 	return 0;
 }
 
@@ -100,15 +93,11 @@ static int cli_mkargs(char *s, char **argv, int argv_len)
 	return argc;
 }
 
-static int cli_help(int argc, char **argv)
+static int cli_help(void *taskarg, int argc, char **argv)
 {
-	tty_t	*tty;
+	xtcb_t	*xtcb = taskarg;
 	cli_t	*ctab;
 	int	i, n, wid;
-
-	if ((tty = u_gettty()) == NULL) {
-		return -1;
-	}
 
 	ctab = cmdtab;
 	for (i = wid = 0; ctab[i].func; i++) {
@@ -118,16 +107,16 @@ static int cli_help(int argc, char **argv)
 	wid = (wid + 15) / 8 * 8;
 
 	for (i = 0; ctab[i].func; i++) {
-		memset(tty->logbuf, ' ', sizeof(tty->logbuf));
-		memcpy(tty->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
-		memcpy(tty->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
-		strcat(tty->logbuf, "\r\n");
-		u_puts(tty->logbuf);		
+		memset(xtcb->logbuf, ' ', CFG_LOG_BUFF);
+		memcpy(xtcb->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
+		memcpy(xtcb->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
+		strcat(xtcb->logbuf, "\r\n");
+		task_puts(xtcb, xtcb->logbuf);		
 	}
 	return 0;
 }
 
-static int cli_echo(int argc, char **argv)
+static int cli_echo(void *taskarg, int argc, char **argv)
 {
 	char	*testargs[] = {
 		"",
@@ -145,29 +134,29 @@ static int cli_echo(int argc, char **argv)
 
 	if (argc > 1) {
 		for (i = 0; i < argc; i++) {
-			printf("#%d: %s\n", i, argv[i]);
+			task_printf(taskarg, "#%d: %s\n", i, argv[i]);
 		}
 		return 0;
 	}
 
 	for (n = 0; testargs[n]; n++) {
-		printf("Parsing <%s>\n", testargs[n]);
+		task_printf(taskarg, "Parsing <%s>\n", testargs[n]);
 		strcpy(buf, testargs[n]);
 		argc = cli_mkargs(buf, myargv, 16);
 		for (i = 0; i < argc; i++) {
-			printf("    #%d: %s\n", i, myargv[i]);
+			task_printf(taskarg, "    #%d: %s\n", i, myargv[i]);
 		}
 	}
 	return 0;
 }
 
-static int cli_dump(int argc, char **argv)
+static int cli_dump(void *taskarg, int argc, char **argv)
 {
 	char	*p;
 	int	n;
 
 	if (argc < 2) {
-		u_puts("usage: dump address [length]\r\n");
+		task_puts(taskarg, "usage: dump address [length]\r\n");
 		return -1;
 	}
 
@@ -177,21 +166,17 @@ static int cli_dump(int argc, char **argv)
 	} else {
 		n = 16 * 4;
 	}
-	hexdump(p, n);
+	hexdump(taskarg, p, n);
 	return 0;
 }
 	
 #if	(CFG_HISTORY_ITEMS > 0)
-static int cli_history(int argc, char **argv)
+static int cli_history(void *taskarg, int argc, char **argv)
 {
-	tty_t	*tty;
-	rdln_t	*rdl;
+	xtcb_t	*xtcb = taskarg;
+	rdln_t	*rdl = xtcb->readline;
+	char	*argxs[CFG_CLI_MAX_PARAM];
 	int	i;
-
-	if ((tty = u_gettty()) == NULL) {
-		return -1;
-	}
-	rdl = &tty->readline;
 
 	if (argc < 2) {
 		return readline_history_dump(rdl);
@@ -199,7 +184,12 @@ static int cli_history(int argc, char **argv)
 
 	i = (int)strtol(argv[1], NULL, 0);
 	if (history_copy(&rdl->history, i, rdl->lbuf, CFG_READLINE_BUFFER) > 0) {
-		return cli_main(NULL, rdl->lbuf);	
+		argc = cli_mkargs(rdl->lbuf, argxs, CFG_CLI_MAX_PARAM);
+		if (argc) {
+			cli_main(taskarg, cmdtab, argc, argxs);
+		}
+		task_puts(xtcb, "#> ");
+		return 0;	
 	}	
 	return -2;
 }

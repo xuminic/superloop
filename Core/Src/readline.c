@@ -147,9 +147,10 @@ static	struct	{
 };
 
 
-void *readline_init(rdln_t *rdl)
+void *readline_init(rdln_t *rdl, void *uart)
 {
 	memset(rdl, 0, sizeof(rdln_t));
+	rdl->uart = uart;
 #if	(CFG_HISTORY_ITEMS > 0)
 	history_init(&rdl->history);
 #endif

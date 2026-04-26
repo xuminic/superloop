@@ -13,99 +13,62 @@
   ******************************************************************************
   */
 #include <stdio.h>
+#include <string.h>
 
-#include "main.h"
-#include "platform.h"
+#include "uart.h"
+#include "board.h"
+#include "superloop.h"
 
 
-/**
- * @brief  Called when DMA finishes sending data
- */
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) 
+int uart_init(uart_t *ufp, void *huart)
 {
-	file_t	*ufp;
-
-	if ((ufp = ddp_whoami(huart)) != NULL) {
-		ufp->state &= ~FCMD_SEND;
-	}
-}
-
-/**
- * @brief  Called when DMA finishes receiving the specified number of bytes
- */
-/*
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) 
-{
-	file_t	*ufp;
-
-	if ((ufp = ddp_whoami(huart)) != NULL) {
-		ufp->state &= ~FCMD_RECV;
-	}
-}
-*/
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-	file_t	*ufp;
-
-	if (huart->ErrorCode & HAL_UART_ERROR_ORE) {
-		__HAL_UART_CLEAR_OREFLAG(huart);
-		/* Important: Restart the interrupt here! */
-		if ((ufp = ddp_whoami(huart)) != NULL) {
-			HAL_UART_Receive_DMA(huart, (uint8_t*) ufp->rx_ring, CFG_UART_RXBUF);
-		}
-	}
-}
-
-
-file_t *uart_open(void *huart)
-{
-	file_t	*ufp;
-
-	if ((ufp = ddp_open(huart)) == NULL) {
-		return NULL;
-	}
-
-	HAL_UART_Receive_DMA(huart, (uint8_t *)ufp->rx_ring, CFG_UART_RXBUF);
+	memset(ufp, 0, sizeof(uart_t));
+	ufp->handler = huart;
 	ufp->rx_now = 0;
-	return ufp;
+	return bai_uart_dma_receive(huart, ufp->rx_ring, CFG_UART_RXBUF);
 }
 
-int uart_close(file_t *ufp)
-{
-	ddp_close(ufp);
-	return 0;
-}
-
-int uart_write(file_t *ufp, char *buf, int len)
+int uart_write_nonblock(uart_t *ufp, char *buf, int len)
 {
 	if (!ufp || !ufp->handler) {
-		return DDERR_INVALID;
+		return UERR_INVALID;
 	}
 	if (!buf || !len) {	/* for checking the transferring status */
 		return ufp->state & FCMD_SEND;
 	}
 	if (ufp->state & FCMD_SEND) {
-		return DDERR_BUSY;
+		return UERR_BUSY;
 	}
 	ufp->state |= FCMD_SEND;
-	HAL_UART_Transmit_DMA(ufp->handler, (unsigned char *)buf, len);
-	return DDERR_WAIT;
+	bai_uart_dma_send(ufp->handler, buf, len);
+	return UERR_WAIT;
+}
+
+int uart_write_block(uart_t *ufp, char *buf, int len)
+{
+	int	rc;
+
+	if ((rc = uart_write_nonblock(ufp, buf, len)) == UERR_WAIT) {
+		while (ufp->state & FCMD_SEND) {
+        	        sloop_dispatch();
+        	}
+		return len;
+	}
+	return rc;
 }
 
 
-int uart_read(file_t *ufp, char *buf, int len)
+int uart_read_nonblock(uart_t *ufp, char *buf, int len)
 {
-	UART_HandleTypeDef *huart = ufp->handler;
 	int	i, widx;
 
 	if (!ufp || !ufp->handler) {
-		return DDERR_INVALID;
+		return UERR_INVALID;
 	}
 
 	/* Get the current write position from the DMA hardware
 	 * CNDTR counts down from CFG_UART_RXBUF to 0 */
-	widx = CFG_UART_RXBUF - __HAL_DMA_GET_COUNTER(huart->hdmarx);
+	widx = bai_uart_dma_index(ufp->handler, CFG_UART_RXBUF);
 	if (!buf || !len) {	/* for checking the receiving status */
 		if (ufp->rx_now < widx) {
 			return widx - ufp->rx_now;
@@ -128,4 +91,44 @@ int uart_read(file_t *ufp, char *buf, int len)
 	return i; /* Returns number of bytes actually read */
 }
 
+int uart_read_block(uart_t *ufp, char *buf, int len)
+{
+	int	i, n;
+
+	if (ufp->state & FCMD_RECV) {
+		return UERR_BUSY;
+	}
+	ufp->state |= FCMD_RECV;
+	for (i = n = 0; i < len; i += n) {
+		if ((n = uart_read_nonblock(ufp, buf + i, len - i)) < 0) {
+			break;
+		}
+		if ((ufp->state & FCMD_RECV) == 0) {
+			break;	/* break by interrupt */
+		}
+		sloop_dispatch();
+	}
+	ufp->state &= ~FCMD_RECV;
+	return i;
+}
+
+extern	uart_t *platform_find_uart(void *huart);
+
+void uart_write_unblock(void *huart)
+{
+	uart_t	*ufp;
+
+        if ((ufp = platform_find_uart(huart)) != NULL) {
+		ufp->state &= ~FCMD_SEND;
+        }
+}
+
+void uart_read_unblock(void *huart)
+{
+	uart_t	*ufp;
+
+        if ((ufp = platform_find_uart(huart)) != NULL) {
+        	ufp->state &= ~FCMD_RECV;
+        }
+}
 

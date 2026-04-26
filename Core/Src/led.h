@@ -8,6 +8,7 @@
 
 
 typedef	struct	{
+	void	*handler;
 	int	gpio;	/* the gpio to drive the LED */
 
 	int	acc;	/* Bresenham PWM accumulator: lowest priority */
@@ -40,7 +41,7 @@ int led_pwm_light(led_t *led, int duty);
 int led_pwm_breath(led_t *led, int step, int ticks);
 int led_tick(void *tcb);
 void led_init(int gpio);
-int led_command(int argc, char **argv);
+int led_command(void *taskarg, int argc, char **argv);
 #ifdef __cplusplus
 } // __cplusplus defined.
 #endif

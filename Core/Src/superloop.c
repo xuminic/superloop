@@ -69,7 +69,7 @@ void sloop_dispatch(void)
 		task->flags |= SLOOP_STAT_BLOCK;
 		sloop_unlock();
 
-		task->entry(task);
+		task->entry(task->extension);
 		
 		sloop_lock();
 		task->flags &= ~SLOOP_STAT_BLOCK;
@@ -85,7 +85,7 @@ void sloop_dispatch(void)
 }
 
 
-tcb_t *sloop_task_create(task_f task, int period, int sched, char *name)
+tcb_t *sloop_task_create(task_f task, void *param, int period, int sched, char *name)
 {
 	int	i;
 
@@ -102,6 +102,7 @@ tcb_t *sloop_task_create(task_f task, int period, int sched, char *name)
 				sloop_tcb[i].name[CFG_SLP_TASK_NAME-1] = 0;
 			}
 #endif
+			sloop_tcb[i].extension = param;
 			return &sloop_tcb[i];
 		}
 	}

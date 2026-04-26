@@ -32,6 +32,7 @@ typedef	struct	{
 
 
 typedef	struct	{
+	void	*uart;		/* point to the i/o of character stream */
 	char	lbuf[CFG_READLINE_BUFFER];
 	int	idx;
 	int	cursor;
@@ -50,7 +51,7 @@ extern "C"
 #endif
 
 /* readline.c */
-void *readline_init(rdln_t *rdl);
+void *readline_init(rdln_t *rdl, void *uart);
 char *readline(rdln_t *rdl, int c);
 #if	(CFG_HISTORY_ITEMS > 0)
 int readline_history_dump(rdln_t *rdl);

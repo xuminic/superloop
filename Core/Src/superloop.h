@@ -53,7 +53,7 @@ typedef	struct	{
 void sloop_init(void *tty);
 void sloop_tick(void);
 void sloop_dispatch(void);
-tcb_t *sloop_task_create(task_f task, int period, int sched, char *name);
+tcb_t *sloop_task_create(task_f task, void *param, int period, int sched, char *name);
 void sloop_task_kill(tcb_t *task);
 tcb_t *sloop_get_tcb(void);
 

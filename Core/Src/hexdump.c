@@ -3,22 +3,21 @@
 #include <stdio.h>
 #include <string.h>
 
-extern	int u_puts(char *s);
+#include "platform.h"
 
 static  const   char    hex_tab[] = "0123456789ABCDEF";
-static	char	logbuf[84];
 
 /* 00000000-  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................\r\n
    index:  0         11 (Hex)                              61 (ASCII) */
-void hexdump(char *s, int len) 
+void hexdump(xtcb_t *xtcb, char *s, int len) 
 {
-	char	*bp;
+	char	*bp, *logbuf = xtcb->logbuf;
 	int 	i, n;
 
 	bp = (char*)(((unsigned long) s) & ~0xf);
 	while (bp < s + len) {
         	/* initialize the template */
-        	memset(logbuf, ' ', sizeof(logbuf));
+        	memset(logbuf, ' ', CFG_LOG_BUFF);
         	logbuf[8]  = '-';
         	logbuf[60] = ' ';
         	logbuf[77] = '\r';
@@ -44,7 +43,7 @@ void hexdump(char *s, int len)
 			/* filling the ASCII part */
 			logbuf[61 + i] = isprint((int)*bp) ? *bp : '.';
 		}
-		u_puts(logbuf);
+		task_puts(xtcb, logbuf);
 	}
 }
 

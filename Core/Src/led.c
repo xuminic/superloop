@@ -8,9 +8,10 @@
 #ifndef	EXECUTABLE
 #include "main.h"
 #endif
+#include "platform.h"
 #include "led.h"
 
-extern int u_puts(char *s);
+extern void u_puts(char *s);
 
 #define MOREARG(c,v)    {       \
         --(c), ++(v); \
@@ -230,7 +231,7 @@ OPTION:\r\n\
   -t, --ticker          set the content of the rolling ticker\r\n\
 ";
 
-int led_command(int argc, char **argv)
+int led_command(void *taskarg, int argc, char **argv)
 {
 	static	char	led_msg_buffer[128];
 	void	*led = &ledtab[0];
@@ -239,7 +240,7 @@ int led_command(int argc, char **argv)
 	duty = step = sdur = 0;
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-H") || !strcmp(*argv, "--help")) {
-			u_puts(led_help);
+			task_puts(taskarg, led_help);
 			return 0;
 		} else if (!strcmp(*argv, "-l") || !strcmp(*argv, "--led")) {
 			MOREARG(argc, argv);
@@ -261,8 +262,7 @@ int led_command(int argc, char **argv)
 		} else if (!strcmp(*argv, "-t") || !strcmp(*argv, "--ticker")) {
 			todo = 't';
 		} else {
-			u_puts(*argv);
-			u_puts(": unknown parameter.\r\n");
+			task_printf(taskarg, "%s: unknown parameter.\r\n", *argv);
 			return -1;
 		}
 	}

@@ -8,16 +8,16 @@
 #include "platform.h"
 
 
-static	tty_t	console;
+static	uart_t	conuart;
+static	rdln_t	conreadln;
+static	xtcb_t	console;
 
 static	char	*splash = "\r\n\
 STM32 Time-Triggered Co-operative Super-Loop.\r\n\
 #> ";
 
-void platform_init(void *tty)
+void platform_init(void *huart)
 {
-	tcb_t	*tcb;
-
 	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_13, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_14, GPIO_PIN_SET);
 
@@ -25,127 +25,117 @@ void platform_init(void *tty)
 	//HAL_UART_Transmit_DMA(tty, "Hell \r\n", 7);
 	//HAL_Delay(100);
 
-	led_init(GPIO_PIN_13);
+	led_init(GPIO_PIN_13);//???
+	sloop_task_create(led_tick, NULL, 1, 0, NULL);
 
-	console.uart = uart_open(tty);
-	readline_init(&console.readline);
-	
-	sloop_task_create(led_tick, 1, 0, NULL);
+	uart_init(&conuart, huart);
+	readline_init(&conreadln, &conuart);
+	console.uart = &conuart;
+	console.readline = &conreadln;
+	console.taskid = sloop_task_create(cli_task, &console, 10, 0, NULL);
 
-	uart_write(console.uart, splash, strlen(splash));
-	tcb = sloop_task_create(cli_task, 10, 0, NULL);
-	tcb->extension = &console;
+	task_puts(&console, splash);
 }
 
-tty_t *u_gettty(void)
+
+uart_t *platform_find_uart(void *huart)
+{
+	if (console.uart->handler == huart) {
+		return console.uart;
+	}
+	return NULL;
+}
+
+
+xtcb_t *platform_current_xtcb(void)
 {
 	tcb_t	*tcb;
-	tty_t	*tty = NULL;
+	xtcb_t	*xtcb = NULL;
 
 	if ((tcb = sloop_get_tcb()) == NULL) {
-		uart_write(console.uart, "*", 1);
-		//tty = &console;
+		u_puts("*");
+		//xtcb = &console;
 	} else if (tcb->extension == NULL) {
-		uart_write(console.uart, "#", 1);
-		//tty = &console;
+		u_puts("#");
+		//xtcb = &console;
 	} else {
-		tty = tcb->extension;
+		xtcb = tcb->extension;
 	}
-	return tty;
+	return xtcb;
+}
+
+void task_puts(xtcb_t *xtcb, char *s)
+{
+	uart_write_block(xtcb->uart, s, strlen(s));
+}
+
+int task_printf(xtcb_t *xtcb, char *fmt, ...)
+{
+	va_list ap;
+	int	n;
+	
+	va_start(ap, fmt);
+	n = vsnprintf(xtcb->logbuf, CFG_LOG_BUFF, fmt, ap);
+	va_end(ap);
+	
+	uart_write_block(xtcb->uart, xtcb->logbuf, n);
+	return n;
 }
 
 
-int u_puts(char *s)
+void u_puts(char *s)
 {
-	tty_t	*tty;
-	int	n;
-
-	if ((tty = u_gettty()) == NULL) {
-		return -1;
-	}
-
-	n = strlen(s);
-	uart_write(tty->uart, s, n);
-	while (tty->uart->state & FCMD_SEND) {
-		sloop_dispatch();
-	}
-	return n;
+	uart_write_block(console.uart, s, strlen(s));
 }
 
 int u_printf(char *fmt, ...)
 {
-	tty_t	*tty;
 	va_list ap;
 	int	n;
 	
-	if ((tty = u_gettty()) == NULL) {
-		return -1;
-	}
-
 	va_start(ap, fmt);
-	n = vsnprintf(tty->logbuf, sizeof(tty->logbuf), fmt, ap);
+	n = vsnprintf(console.logbuf, CFG_LOG_BUFF, fmt, ap);
 	va_end(ap);
 	
-	uart_write(tty->uart, tty->logbuf, n);
-	while (tty->uart->state & FCMD_SEND) {
-		sloop_dispatch();
-	}
+	uart_write_block(console.uart, console.logbuf, n);
 	return n;
 }
 
 
 int __io_putchar(int ch) 
 {
-	tty_t	*tty;
+	xtcb_t	*xtcb;
 	char	buf[4];
 
-	if ((tty = u_gettty()) == NULL) {
+	if ((xtcb = platform_current_xtcb()) == NULL) {
 		return -1;
 	}
 	if (ch == '\n') {
 		buf[0] = '\r', buf[1] = '\n';
-		//HAL_UART_Transmit(console, (uint8_t *)buf, 2, HAL_MAX_DELAY);
-		uart_write(tty->uart, buf, 2);
+		uart_write_block(xtcb->uart, buf, 2);
 	} else {
 		buf[0] = (char)ch;
-		//HAL_UART_Transmit(console, (uint8_t *)buf, 1, HAL_MAX_DELAY);
-		uart_write(tty->uart, buf, 1);
-	}
-	while (tty->uart->state & FCMD_SEND) {
-		sloop_dispatch();
+		uart_write_block(xtcb->uart, buf, 1);
 	}
 	return ch;
 }
 
 int __io_getchar(void)
 {
-	tty_t	*tty;
-	char	ch[4];
+	xtcb_t	*xtcb;
+	char	buf[4];
 
-	if ((tty = u_gettty()) == NULL) {
+	if ((xtcb = platform_current_xtcb()) == NULL) {
 		return -1;
 	}
 
-	/* Clear the Overrun flag (ORE) before receiving.
-	 * If data was sent while the MCU wasn't listening,
-	 * the UART will lock up unless this flag is cleared. */
-	__HAL_UART_CLEAR_OREFLAG((UART_HandleTypeDef*)tty->uart->handler);
-
-	/* Polling mode:
-	 * - &ch: address to store the byte
-	 * - 1: receive exactly 1 byte
-	 * - HAL_MAX_DELAY: wait forever until a key is pressed*/
-	/*if (HAL_UART_Receive(console, ch, 1, HAL_MAX_DELAY) != HAL_OK) {
-		return EOF;
-	}*/
-	uart_read(tty->uart, ch, 1);
-	while (!uart_read(tty->uart, NULL, 0)) {
-		sloop_dispatch();
+	if (uart_read_block(xtcb->uart, buf, 1) < 1) {
+		return -2;
 	}
 	
 	/* echo back */
-	__io_putchar(ch[0]);
-        return (int)ch[0];
+	__io_putchar(buf[0]);
+        return (int)buf[0];
 }
 
 
