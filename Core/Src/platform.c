@@ -18,14 +18,14 @@ STM32 Time-Triggered Co-operative Super-Loop.\r\n\
 
 void platform_init(void *huart)
 {
-	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_13, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_14, GPIO_PIN_SET);
+	//HAL_GPIO_WritePin(GPIOG, GPIO_PIN_13, GPIO_PIN_SET);
+	//HAL_GPIO_WritePin(GPIOG, GPIO_PIN_14, GPIO_PIN_SET);
 
 	// Start Transmitting: Send the initial string
 	//HAL_UART_Transmit_DMA(tty, "Hell \r\n", 7);
 	//HAL_Delay(100);
 
-	led_init(GPIO_PIN_13);//???
+	led_init(GPIOG, GPIO_PIN_13);//???
 	sloop_task_create(led_tick, NULL, 1, 0, NULL);
 
 	uart_init(&conuart, huart);

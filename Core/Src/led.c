@@ -9,9 +9,9 @@
 #include "main.h"
 #endif
 #include "platform.h"
+#include "board.h"
 #include "led.h"
 
-extern void u_puts(char *s);
 
 #define MOREARG(c,v)    {       \
         --(c), ++(v); \
@@ -48,24 +48,16 @@ static void led_morse(led_t *m);
 static void led_reload(led_t *m);
 static void led_pwm(led_t *l);
 
-static void led_toggler(led_t *l, int sw)
-{
-#ifdef  EXECUTABLE
-	u_puts(sw ? "#\b" : " \b");
-#else
-	HAL_GPIO_WritePin(GPIOG, l->gpio, sw ? GPIO_PIN_SET : GPIO_PIN_RESET);
-#endif
-}
 
-
-led_t *led_open(int gpio)
+led_t *led_open(void *hgpio, int pin)
 {
 	int	i;
 
 	for (i = 0; i < CFG_LED_NUMBER; i++) {
-		if (ledtab[i].gpio == 0) {
+		if (ledtab[i].hgpio == NULL) {
 			memset(&ledtab[i], 0, sizeof(led_t));
-			ledtab[i].gpio = gpio;
+			ledtab[i].hgpio = hgpio;
+			ledtab[i].pin = pin;
 			return &ledtab[i];
 		}
 	}
@@ -79,7 +71,7 @@ void led_close(led_t *led)
 
 int led_telegram(led_t *led, char *s)
 {
-	((led_t*)led)->telegram = s;
+	led->telegram = s;
 	led_reload(led);
 	return s == NULL ? 0 : strlen(s);
 }
@@ -87,31 +79,29 @@ int led_telegram(led_t *led, char *s)
 int led_ticker(led_t *led, char *s)
 {
 	if (!s || !*s) {
-		((led_t*)led)->rblen = 0;
+		led->rblen = 0;
 	} else {
-		((led_t*)led)->rblen = strlen(s);
-		strncpy(((led_t*)led)->ringbuf, s, CFG_LED_RINGBUF);
-		if (((led_t*)led)->rblen > CFG_LED_RINGBUF) {
-			((led_t*)led)->rblen = CFG_LED_RINGBUF;
-		}
+		strncpy(led->ringbuf, s, CFG_LED_RINGBUF);
+		led->ringbuf[CFG_LED_RINGBUF] = 0;
+		led->rblen = strlen(led->ringbuf);
 	}
 	led_reload(led);
-	return ((led_t*)led)->rblen;
+	return led->rblen;
 }
 
 int led_pwm_light(led_t *led, int duty)
 {
-	((led_t*)led)->acc  = 0;
-	((led_t*)led)->duty = duty > 100 ? 100 : duty;
-	return ((led_t*)led)->duty;
+	led->acc  = 0;
+	led->duty = duty > 100 ? 100 : duty;
+	return led->duty;
 }
 
-int led_pwm_breath(led_t *led, int step, int ticks)
+int led_pwm_breath(led_t *led, int step, int hold)
 {
-	((led_t*)led)->acc  = 0;
-	((led_t*)led)->step = ((led_t*)led)->duty = step > 50 ? 50 : step;
-	((led_t*)led)->hold = ticks;
-	((led_t*)led)->dcnt = ticks;
+	led->acc  = led->duty = 0;
+	led->step = step > 50 ? 50 : step;
+	led->hold = hold;
+	led->dcnt = hold;
 	return 0;
 }
 
@@ -120,7 +110,7 @@ int led_tick(void *tcb)
 	int	i;
 
 	for (i = 0; i < CFG_LED_NUMBER; i++) {
-		if (ledtab[i].gpio == 0) {
+		if (ledtab[i].hgpio == NULL) {
 			continue;
 		}
 		if (ledtab[i].telegram || ledtab[i].rblen) {
@@ -146,22 +136,22 @@ static void led_morse(led_t *m)
 
 	switch (state) {
 	case 0:		/* 00 = OFF 1T */
-		led_toggler(m, 0);
+		bai_led_off(m->hgpio, m->pin);
 		m->ticks = CFG_LED_TICK;
 		break;
 
 	case 1: 	/* 01 = DOT 1T */
-		led_toggler(m, 1);
+		bai_led_on(m->hgpio, m->pin);
 		m->ticks = CFG_LED_TICK;
 		break;
 
 	case 2: 	/* 10 = DASH 3T */
-		led_toggler(m, 1);
+		bai_led_on(m->hgpio, m->pin);
 		m->ticks = 3 * CFG_LED_TICK;
 		break;
 
 	case 3: 	/* 11 = END = OFF 2T */
-		led_toggler(m, 0);
+		bai_led_off(m->hgpio, m->pin);
 		m->ticks = 2 * CFG_LED_TICK;
 
 		/* loading next letter */
@@ -193,9 +183,9 @@ static void led_reload(led_t *m)
 
 static void led_pwm(led_t *l)
 {
-	if (l->hold) {
+	if (l->hold && l->step) {	/* breath mode */
 		l->dcnt--;
-		if (l->dcnt == 0) {
+		if (l->dcnt <= 0) {
 			l->dcnt = l->hold;
 			l->duty += l->step;
 			if (l->duty >= 100) {
@@ -211,11 +201,11 @@ static void led_pwm(led_t *l)
 
 	l->acc += l->duty;
 
-	if (l->acc >= 100) {
+	if (l->acc >= 100) {	/* Bresenham method: plus 100 */
 		l->acc -= 100;
-		led_toggler(l, 1);
+		bai_led_on(l->hgpio, l->pin);
 	} else {
-		led_toggler(l, 0);
+		bai_led_off(l->hgpio, l->pin);
 	}
 }
 
@@ -225,19 +215,20 @@ Usage: led [OPTION] [message]\r\n\
 OPTION:\r\n\
   -l, --led NUM         specify the current LED\r\n\
   -b, --bright NUM      the brightness of the LED (%)\r\n\
-  -d, --duration NUM    the duration of each step in Breath mode (ms)\r\n\
+  -h, --hold NUM        the hold time of each step in Breath mode (ms)\r\n\
   -s, --step NUM        the step of the brightness in Breath mode (%)\r\n\
   -m, --message         sending a one-off message\r\n\
   -t, --ticker          set the content of the rolling ticker\r\n\
+  -d, --dump            dump the LED status\r\n\
 ";
 
 int led_command(void *taskarg, int argc, char **argv)
 {
-	static	char	led_msg_buffer[128];
-	void	*led = &ledtab[0];
-	int	i, duty, step, sdur, todo = 0;
+	xtcb_t	*xtcb = taskarg;
+	led_t	*led = &ledtab[0];
+	int	i, duty, step, hold, todo = 0;
 
-	duty = step = sdur = 0;
+	duty = step = hold = -1;
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-H") || !strcmp(*argv, "--help")) {
 			task_puts(taskarg, led_help);
@@ -254,46 +245,77 @@ int led_command(void *taskarg, int argc, char **argv)
 		} else if (!strcmp(*argv, "-s") || !strcmp(*argv, "--step")) {
 			MOREARG(argc, argv);
 			step = (int) strtol(*argv, NULL, 0);
-		} else if (!strcmp(*argv, "-d") || !strcmp(*argv, "--duration")) {
+		} else if (!strcmp(*argv, "-h") || !strcmp(*argv, "--hold")) {
 			MOREARG(argc, argv);
-			sdur = (int) strtol(*argv, NULL, 0);
+			hold = (int) strtol(*argv, NULL, 0);
 		} else if (!strcmp(*argv, "-m") || !strcmp(*argv, "--message")) {
 			todo = 'm';
 		} else if (!strcmp(*argv, "-t") || !strcmp(*argv, "--ticker")) {
 			todo = 't';
+		} else if (!strcmp(*argv, "-d") || !strcmp(*argv, "--dump")) {
+			todo = 'd';
 		} else {
 			task_printf(taskarg, "%s: unknown parameter.\r\n", *argv);
 			return -1;
 		}
 	}
+
+	if (led->hgpio == NULL) {
+		task_puts(taskarg, "LED device not defined\r\n");
+		return -2;
+	}
 	
 	if ((duty >= 0) && (duty <= 100)) {
 		led_pwm_light(led, duty);
 	}
-	if (step && (step <= 50)) {
-		sdur = (sdur == 0) ? 100 : sdur;
-		led_pwm_breath(led, step, sdur);
+	if (step > 0) {
+		step = (step > 50) ? 50 : step;
+		hold = (hold < 0) ? 100 : hold;
+		led_pwm_breath(led, step, hold);
 	}
 
 	if (argc) {
-		strncpy(led_msg_buffer, *argv, sizeof(led_msg_buffer)-1);
-		led_msg_buffer[sizeof(led_msg_buffer)] = 0;
+		strncpy(xtcb->logbuf, *argv, CFG_LOG_BUFF - 1);
+		xtcb->logbuf[CFG_LOG_BUFF - 1] = 0;
 	} else {
-		strcpy(led_msg_buffer, "HelloWorld");
+		strcpy(xtcb->logbuf, "HelloWorld");
 	}
 	if (todo == 'm') {
-		led_telegram(led, led_msg_buffer);
+		led_telegram(led, xtcb->logbuf);
 	} else if (todo == 't') {
-		led_ticker(led, led_msg_buffer);
+		led_ticker(led, xtcb->logbuf);
+	} else if (todo == 'd') {
+		for (i = 0; i < CFG_LED_NUMBER; i++) {
+			if (ledtab[i].hgpio) {
+				led_dump(taskarg, &ledtab[i]);
+			}
+		}
 	}
 	return 0;
 }
 
-void led_init(int gpio)
+void led_dump(void *taskarg, led_t *l)
+{
+	task_printf(taskarg, "LED PWM duty:           %d\r\n", l->duty);
+	task_printf(taskarg, "LED PWM Breath step:    %d\r\n", l->step);
+	task_printf(taskarg, "LED PWM Breath hold:    %d\r\n", l->hold);
+	task_printf(taskarg, "LED PWM Breath counter: %d\r\n", l->dcnt);
+	if (l->rblen) {
+		task_printf(taskarg, "Ticker Message:         <%s> (%d)\r\n", l->ringbuf, l->rbnow);
+	} else {
+		task_puts(taskarg, "Ticker Message:         <>\r\n");
+	}
+	if (l->telegram) {
+		task_printf(taskarg, "Telegram Message:       <%s>\r\n", l->telegram);
+	}
+	task_puts(taskarg, "\r\n");
+}
+
+void led_init(void *hgpio, int pin)
 {
 	led_t	*l;
 
-	if ((l = led_open(gpio)) != NULL) {
+	if ((l = led_open(hgpio, pin)) != NULL) {
 		l->duty = 50;
 		l->step = 10;
 		l->hold = 100;
@@ -431,11 +453,6 @@ static void gen_morse_table(void)
 		if ((i & 7) == 7) printf("\n\t");
 	}
 	printf("0x%08X\n};\n", table[i]);
-}
-
-int u_puts(char *s)
-{
-	return write(1, s, strlen(s));
 }
 
 int main(int argc, char **argv)
