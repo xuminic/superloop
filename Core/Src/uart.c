@@ -17,7 +17,6 @@
 
 #include "uart.h"
 #include "board.h"
-#include "superloop.h"
 
 
 int uart_init(uart_t *ufp, void *huart)
@@ -49,9 +48,7 @@ int uart_write_block(uart_t *ufp, char *buf, int len)
 	int	rc;
 
 	if ((rc = uart_write_nonblock(ufp, buf, len)) == UERR_WAIT) {
-		while (ufp->state & FCMD_SEND) {
-        	        sloop_dispatch();
-        	}
+		bai_uart_send_sleep(ufp);
 		return len;
 	}
 	return rc;
@@ -103,32 +100,14 @@ int uart_read_block(uart_t *ufp, char *buf, int len)
 		if ((n = uart_read_nonblock(ufp, buf + i, len - i)) < 0) {
 			break;
 		}
+		bai_uart_receive_sleep(ufp);
+
 		if ((ufp->state & FCMD_RECV) == 0) {
 			break;	/* break by interrupt */
 		}
-		sloop_dispatch();
 	}
 	ufp->state &= ~FCMD_RECV;
 	return i;
 }
 
-extern	uart_t *platform_find_uart(void *huart);
-
-void uart_write_unblock(void *huart)
-{
-	uart_t	*ufp;
-
-        if ((ufp = platform_find_uart(huart)) != NULL) {
-		ufp->state &= ~FCMD_SEND;
-        }
-}
-
-void uart_read_unblock(void *huart)
-{
-	uart_t	*ufp;
-
-        if ((ufp = platform_find_uart(huart)) != NULL) {
-        	ufp->state &= ~FCMD_RECV;
-        }
-}
 

@@ -2,10 +2,7 @@
 #ifndef	_LED_H_
 #define _LED_H_
 
-#define CFG_LED_NUMBER		1	/* define the number of managed LEDs */
-#define CFG_LED_RINGBUF		32	/* define the size of the ring buffer */
-#define CFG_LED_TICK		120	/* define the ticks for 1T: if 1 tick = 1ms, then 100ms */
-
+#include "board.h"
 
 typedef	struct	{
 	void	*hgpio;	/* the gpio group handler */

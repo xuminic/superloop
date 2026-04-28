@@ -8,14 +8,7 @@
 #ifndef	_SUPERLOOP_H_
 #define _SUPERLOOP_H_
 
-#ifndef CFG_SLP_TASK_MAX
-#define CFG_SLP_TASK_MAX        4       /* the maximum number of tasks */
-#endif
-#ifndef	CFG_SLP_TICK_MS
-#define CFG_SLP_TICK_MS         1       /* how many milliseconds per timer tick */
-#endif
-#define CFG_SLP_TASK_NAME       16      /* define task name, or 0=disable */
-
+#include "board.h"
 
 #define SLOOP_STAT_RUNME	0xff	/* should be enough for Run flag */
 #define SLOOP_STAT_BLOCK	0x100	/* task is blocked in case re-entry */

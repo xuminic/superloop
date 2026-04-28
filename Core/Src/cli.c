@@ -4,13 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "led.h"
 #include "platform.h"
 
 
 static int cli_mkargs(char *s, char **argv, int argv_len);
-static int cli_help(void *xtcb, int argc, char **argv);
-static int cli_echo(void *xtcb, int argc, char **argv);
-static int cli_dump(void *xtcb, int argc, char **argv);
+static int cli_help(void *taskarg, int argc, char **argv);
+static int cli_echo(void *taskarg, int argc, char **argv);
+static int cli_dump(void *taskarg, int argc, char **argv);
 
 #if	(CFG_HISTORY_ITEMS > 0)
 static int cli_history(void *xtcb, int argc, char **argv);

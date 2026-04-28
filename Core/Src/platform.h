@@ -8,14 +8,8 @@
 #ifndef	_PLATFORM_H_
 #define _PLATFORM_H_
 
-#define CFG_CLI_MAX_PARAM	16	/* maximum command line parameters */
-#define CFG_CRC16_LOOKUP	1	/* require a lookup table for CRC16 (modbus) */
-#define CFG_PARAM_SIZE		64	/* the parameter block size in flash sectors */
-#define CFG_LOG_BUFF		256
-
-#include "superloop.h"
+#include "board.h"
 #include "uart.h"
-#include "led.h"
 #include "readline.h"
 
 

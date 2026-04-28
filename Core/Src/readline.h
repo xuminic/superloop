@@ -3,10 +3,7 @@
 #ifndef	_READLINE_H_
 #define _READLINE_H_
 
-#define CFG_HISTORY_ITEMS	32	/* maximum history items */
-#define CFG_HISTORY_POOL	((CFG_HISTORY_ITEMS + 1) * 32)
-#define CFG_READLINE_BUFFER	128	/* the size of the line buffer */
-
+#include "board.h"
 
 typedef	struct	{
 	int	off;  /* the offset in the pool */

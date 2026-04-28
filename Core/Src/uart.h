@@ -7,7 +7,7 @@
 #ifndef	_UART_H_
 #define _UART_H_
 
-#define CFG_UART_RXBUF		64      /* the ring buffer for UART receiving */
+#include "board.h"
 
 #define	FSTAT_IDLE	0
 #define FCMD_SEND	1
