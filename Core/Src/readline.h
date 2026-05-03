@@ -52,6 +52,7 @@ void *readline_init(rdln_t *rdl, void *uart);
 char *readline(rdln_t *rdl, int c);
 #if	(CFG_HISTORY_ITEMS > 0)
 int readline_history_dump(rdln_t *rdl);
+int cmd_history(void *taskarg, int argc, char **argv);
 #endif
 
 /* history.c */

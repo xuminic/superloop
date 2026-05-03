@@ -275,8 +275,7 @@ int led_command(void *taskarg, int argc, char **argv)
 	}
 
 	if (argc) {
-		strncpy(xtcb->logbuf, *argv, CFG_LOG_BUFF - 1);
-		xtcb->logbuf[CFG_LOG_BUFF - 1] = 0;
+		StrNCpy(xtcb->logbuf, *argv, CFG_LOG_BUFF);
 	} else {
 		strcpy(xtcb->logbuf, "HelloWorld");
 	}

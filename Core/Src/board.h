@@ -31,13 +31,18 @@ void bai_led_on(void *gpio, int pin);
 void bai_led_off(void *gpio, int pin);
 void bai_spin_lock(void);
 void bai_spin_unlock(void);
+void bai_soft_delay(int ms);
+void bai_hard_delay(int ms);
 void *bai_get_uart_xtcb(void *huart);
 void *bai_get_current_xtcb(void);
-void bai_uart_send_sleep(void *uhandle);
+void *bai_get_default_uart(void);
+int bai_uart_send_sleep(void *uhandle, int ms);
 void bai_uart_send_awake(void *huart);
-void bai_uart_receive_sleep(void *uhandle);
+int bai_uart_receive_sleep(void *uhandle, int ms);
 void bai_uart_receive_awake(void *huart, int state);
 int board_init(void);
+void panic(void *p);
+int task_commandline(void *taskarg);
 
 
 #ifdef __cplusplus

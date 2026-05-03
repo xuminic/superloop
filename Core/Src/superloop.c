@@ -10,7 +10,7 @@
 static	tcb_t		sloop_tcb[CFG_SLP_TASK_MAX];
 static	tcb_t		*sloop_now;
 static	int		sloop_idx = 0;
-static	unsigned	sloop_ticks = 0;
+static	unsigned long	sloop_ticks = 0;
 
 
 void sloop_lock(void)
@@ -52,7 +52,7 @@ void sloop_tick(void)
 void sloop_dispatch(void) 
 {
 	register tcb_t	*task;
-	register unsigned c_cnt;
+	unsigned long	c_cnt;
 
 	task = &sloop_tcb[sloop_idx++];
 	if (sloop_idx >= CFG_SLP_TASK_MAX) {
@@ -118,3 +118,9 @@ tcb_t *sloop_get_tcb(void)
 {
 	return sloop_now;
 }
+
+unsigned long sloop_get_tick(void)
+{	
+	return sloop_ticks;
+}
+

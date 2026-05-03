@@ -6,6 +6,7 @@
 
 #include "platform.h"
 
+
 void task_puts(xtcb_t *xtcb, char *s)
 {
 	uart_write_block(xtcb->uart, s, strlen(s));
@@ -24,17 +25,38 @@ int task_printf(xtcb_t *xtcb, char *fmt, ...)
 	return n;
 }
 
+void task_write(xtcb_t *xtcb, void *buf, int len)
+{
+	uart_write_block(xtcb->uart, buf, len);
+}
+
+void task_dump(xtcb_t *xtcb, char *prompt, char *s, int len)
+{
+	int	i, n, rc;
+
+	StrNCpy(xtcb->logbuf, prompt, CFG_LOG_BUFF);
+	i = strlen(xtcb->logbuf);
+	n = CFG_LOG_BUFF - i;
+	while (len-- && (n > 6)) {	/* big safty margin */
+		rc = sprintf(xtcb->logbuf + i, "%02X ", (unsigned char)*s++);
+		i += rc;
+		n -= rc;
+	}
+	strcpy(xtcb->logbuf + i, "\r\n");
+	uart_write_block(xtcb->uart, xtcb->logbuf, i+2);
+}
+
 
 void u_puts(char *s)
 {
-	xtcb_t	*xtcb = bai_get_current_xtcb();
+	xtcb_t	*xtcb = bai_get_default_uart();
 
 	uart_write_block(xtcb->uart, s, strlen(s));
 }
 
 int u_printf(char *fmt, ...)
 {
-	xtcb_t	*xtcb = bai_get_current_xtcb();
+	xtcb_t	*xtcb = bai_get_default_uart();
 	va_list ap;
 	int	n;
 	
@@ -68,7 +90,7 @@ int __io_getchar(void)
 	char	buf[4];
 
 	if (uart_read_block(xtcb->uart, buf, 1) < 1) {
-		return -2;
+		return -1;
 	}
 	
 	/* echo back */

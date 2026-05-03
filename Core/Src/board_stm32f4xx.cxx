@@ -54,6 +54,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
 	xtcb_t	*xtcb = bai_get_uart_xtcb(huart);
+	uart_t	*ufp = xtcb->uart;
 
 	if (huart->ErrorCode & HAL_UART_ERROR_ORE) {
 		__HAL_UART_CLEAR_OREFLAG(huart);	/* clear ORE, NE, FE flags */
@@ -65,14 +66,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 		/* check if the DMA still functional. 
 		 * In Circular mode, DMA doesn't need to restart */
-		if (!(huart->hdmarx->Instance->CR & DMA_SxCR_EN)) {
+		/*if (!(huart->hdmarx->Instance->CR & DMA_SxCR_EN)) {
 			huart->hdmarx->Instance->CR |= DMA_SxCR_EN;
-		}
+		}*/
 
-		if (xtcb->uart->state & FCMD_SEND) {
+		if (ufp->state & FCMD_SEND) {
 			bai_uart_send_awake(huart);
 		}
-		if (xtcb->uart->state & FCMD_RECV) {
+		if (ufp->state & FCMD_RECV) {
 			bai_uart_receive_awake(huart, -1);
 		}
 	}
@@ -170,6 +171,22 @@ void bai_spin_unlock(void)
 	__enable_irq();
 }
 
+void bai_soft_delay(int ms)
+{
+	unsigned long	last = sloop_get_tick();
+
+	last += ms;
+	if (ms > 0) {
+		while (sloop_get_tick() < last) {
+			sloop_dispatch();
+		}
+	}
+}
+
+void bai_hard_delay(int ms)
+{
+	HAL_Delay(ms);
+}
 
 void *bai_get_uart_xtcb(void *huart)
 {
@@ -189,13 +206,24 @@ void *bai_get_current_xtcb(void)
         return &console;        /* set defaults to console */
 }
 
-void bai_uart_send_sleep(void *uhandle)
+void *bai_get_default_uart(void)
+{
+	return &console;
+}
+
+int bai_uart_send_sleep(void *uhandle, int ms)
 {
 	uart_t	*ufp = uhandle;
+	unsigned long	last = sloop_get_tick();
 
+	last += ms;
 	while (ufp->state & FCMD_SEND) {
 		sloop_dispatch();
+		if ((ms > 0) && (sloop_get_tick() > last)) {
+			return -1;	/* timeout */
+		}
 	}
+	return 0;	/* wake up by ISR */
 }
 
 void bai_uart_send_awake(void *huart)
@@ -205,9 +233,19 @@ void bai_uart_send_awake(void *huart)
 	xtcb->uart->state &= ~FCMD_SEND;
 }
 
-void bai_uart_receive_sleep(void *uhandle)
+int bai_uart_receive_sleep(void *uhandle, int ms)
 {
-	sloop_dispatch();
+	uart_t	*ufp = uhandle;
+	unsigned long	last = sloop_get_tick();
+
+	last += ms;
+	while (ufp->state & FCMD_RECV) {
+		sloop_dispatch();
+		if ((ms > 0) && (sloop_get_tick() > last)) {
+			return -1;	/* timeout */
+		}
+	}
+	return 0;	/* wake up by ISR */
 }
 
 void bai_uart_receive_awake(void *huart, int state)
@@ -226,11 +264,14 @@ int board_init(void)
 	led_t	*l;
 
 	/* initialize the console for user interface */
-	uart_init(&conuart, &huart1);
-	readline_init(&conreadln, &conuart);
-	console.uart = &conuart;
+	console.uartid   = &huart1;
+	console.uart     = &conuart;
 	console.readline = &conreadln;
-	console.taskid = sloop_task_create(cli_task, &console, 10, 0, NULL);
+
+	uart_init(console.uart, console.uartid);
+	readline_init(console.readline, console.uart);
+	cli_init(&console, NULL);
+	console.taskid = sloop_task_create(task_commandline, &console, 10, 0, NULL);
 
 	/* initialize the LED driver */
 	if ((l = led_open(GPIOG, GPIO_PIN_13)) != NULL) {
@@ -240,8 +281,16 @@ int board_init(void)
                 led_pwm_light(l, 10);
         }
 	sloop_task_create(led_tick, NULL, 1, 0, NULL);
+	task_puts(&console, splash);
 	return 0;
 }
 
-
+void panic(void *p)
+{ 
+	static char  dying[] = { "BOM!!!\r\n" };
+        
+	if (p == NULL) {
+		bai_uart_poll_send(console.uartid, dying, 8);
+        }
+} 
 

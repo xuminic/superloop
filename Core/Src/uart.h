@@ -24,6 +24,7 @@
 
 typedef	struct	{
 	void	*handler;	/* device handler to the HAL */
+	void	*taskid;	/* recent called taskid */
 	int	state;
 
 	char	*tx_buf;	/* holding buffer for transferring */
@@ -47,8 +48,7 @@ int uart_write_nonblock(uart_t *ufp, char *buf, int len);
 int uart_write_block(uart_t *ufp, char *buf, int len);
 int uart_read_nonblock(uart_t *ufp, char *buf, int len);
 int uart_read_block(uart_t *ufp, char *buf, int len);
-void uart_write_unblock(void *huart);
-void uart_read_unblock(void *huart);
+int uart_read_timeout(uart_t *ufp, char *buf, int len, int ms);
 
 #ifdef __cplusplus
 } // __cplusplus defined.

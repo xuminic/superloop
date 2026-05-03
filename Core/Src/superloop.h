@@ -33,7 +33,7 @@ typedef	struct	{
 	unsigned	flags;
 	unsigned	elaps;		/* current tick counting */
 	unsigned	period;		/* period of scheduling the task */
-	unsigned	s_count;	/* schedule counter */
+	unsigned long	s_count;	/* schedule counter */
 
 #if	defined(CFG_SLP_TASK_NAME) && (CFG_SLP_TASK_NAME > 0)
 	char		name[CFG_SLP_TASK_NAME];
@@ -49,6 +49,7 @@ void sloop_dispatch(void);
 tcb_t *sloop_task_create(task_f task, void *param, int period, int sched, char *name);
 void sloop_task_kill(tcb_t *task);
 tcb_t *sloop_get_tcb(void);
+unsigned long sloop_get_tick(void);
 
 #ifdef __cplusplus
 } // __cplusplus defined.

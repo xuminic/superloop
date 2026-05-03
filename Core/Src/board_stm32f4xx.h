@@ -9,6 +9,7 @@
 
 /* cli.c */
 #define CFG_CLI_MAX_PARAM	16      /* maximum command line parameters */
+#define CFG_CLI_TABLE		4	/* maximum command line tables */
 
 /* crc16.c */
 #define CFG_CRC16_LOOKUP        1       /* require a lookup table for CRC16 (modbus) */

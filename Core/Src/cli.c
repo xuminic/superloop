@@ -1,4 +1,10 @@
 
+/*
+ * cli.c
+ *
+ *  Created on: 19 Mar 2026
+ *      Author: Andy Xu
+ */
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,63 +14,56 @@
 #include "platform.h"
 
 
-static int cli_mkargs(char *s, char **argv, int argv_len);
-static int cli_help(void *taskarg, int argc, char **argv);
-static int cli_echo(void *taskarg, int argc, char **argv);
-static int cli_dump(void *taskarg, int argc, char **argv);
-
-#if	(CFG_HISTORY_ITEMS > 0)
-static int cli_history(void *xtcb, int argc, char **argv);
-#endif
+static int cmd_help(void *taskarg, int argc, char **argv);
+static int cmd_echo(void *taskarg, int argc, char **argv);
 
 static	cli_t	cmdtab[] = {
 #if	(CFG_HISTORY_ITEMS > 0)
-	{ "!",    cli_history, "history command" },
+	{ "!",    cmd_history, "history command" },
 #endif
-	{ "help", cli_help, "the common help" },
-	{ "echo", cli_echo, "the echo function" },
-	{ "dump", cli_dump, "dump the memory" },
+	{ "help", cmd_help, "the common help" },
+	{ "echo", cmd_echo, "the echo function" },
+	{ "dump", cmd_dump, "dump the memory" },
 	{ "led", led_command, "LED manager" },
 	{ NULL, NULL, NULL }
 };
 
 
-
-int cli_task(void *taskarg)
+void cli_init(void *taskarg, cli_t *cmds)
 {
 	xtcb_t	*xtcb = taskarg;
-	char	c[4], *s, *argv[CFG_CLI_MAX_PARAM];
-	int	argc;
+	int	k;
 
-	if (uart_read_nonblock(xtcb->uart, c, 1) > 0) {
-		if ((s = readline(xtcb->readline, c[0])) != NULL) {
-			argc = cli_mkargs(s, argv, CFG_CLI_MAX_PARAM);
-			if (argc) {
-				cli_main(taskarg, cmdtab, argc, argv);
-			}
-			task_puts(xtcb, "#> ");
+	for (k = 0; k < CFG_CLI_TABLE; k++) {
+		if (xtcb->cmd[k] == NULL) {
+			xtcb->cmd[k] = cmds ? cmds : cmdtab;
+			break;
 		}
 	}
-	return 0;
 }
 
-int cli_main(void *taskarg, cli_t *ctab, int argc, char **argv)
-{
-	int	i;
 
-	for (i = 0; ctab[i].func; i++) {
-		if (!strcmp(ctab[i].cmd, argv[0])) {
-			return ctab[i].func(taskarg, argc, argv);
+int cli_main(void *taskarg, int argc, char **argv)
+{
+	xtcb_t	*xtcb = taskarg;
+	cli_t	*ctab;
+	int	i, k;
+
+	for (k = 0; k < CFG_CLI_TABLE; k++) {
+		if ((ctab = xtcb->cmd[k]) == NULL) {
+			continue;
 		}
-		if (!strcmp(ctab[i].cmd, "+")) {
-			return cli_main(taskarg, ctab[i].usage, argc, argv);
+		for (i = 0; ctab[i].func; i++) {
+			if (!strcmp(ctab[i].cmd, argv[0])) {
+				return ctab[i].func(taskarg, argc, argv);
+			}
 		}
 	}
 	task_printf(taskarg, "%s: command not found\r\n", argv[0]);
 	return 0;
 }
 
-static int cli_mkargs(char *s, char **argv, int argv_len)
+int cli_mkargs(char *s, char **argv, int argv_len)
 {
 	int argc = 0;
 
@@ -94,30 +93,40 @@ static int cli_mkargs(char *s, char **argv, int argv_len)
 	return argc;
 }
 
-static int cli_help(void *taskarg, int argc, char **argv)
+static int cmd_help(void *taskarg, int argc, char **argv)
 {
-	xtcb_t	*xtcb = taskarg;
-	cli_t	*ctab;
-	int	i, n, wid;
+	xtcb_t  *xtcb = taskarg;
+	cli_t   *ctab;
+	int     i, k, n, wid = 0;
 
-	ctab = cmdtab;
-	for (i = wid = 0; ctab[i].func; i++) {
-		n = strlen(ctab[i].cmd);
-		wid = wid < n ? n : wid;
+	for (k = 0; k < CFG_CLI_TABLE; k++) {
+		if ((ctab = xtcb->cmd[k]) == NULL) {
+			continue;
+		}
+		for (i = 0; ctab[i].func; i++) {
+			n = strlen(ctab[i].cmd);
+			wid = wid < n ? n : wid;
+		}
 	}
 	wid = (wid + 15) / 8 * 8;
 
-	for (i = 0; ctab[i].func; i++) {
-		memset(xtcb->logbuf, ' ', CFG_LOG_BUFF);
-		memcpy(xtcb->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
-		memcpy(xtcb->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
-		strcat(xtcb->logbuf, "\r\n");
-		task_puts(xtcb, xtcb->logbuf);		
+	for (k = 0; k < CFG_CLI_TABLE; k++) {
+		if ((ctab = xtcb->cmd[k]) == NULL) {
+			continue;
+		}
+		for (i = 0; ctab[i].func; i++) {
+			memset(xtcb->logbuf, ' ', CFG_LOG_BUFF);
+			memcpy(xtcb->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
+			memcpy(xtcb->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
+			strcat(xtcb->logbuf, "\r\n");
+			task_puts(xtcb, xtcb->logbuf);
+		}
 	}
 	return 0;
 }
 
-static int cli_echo(void *taskarg, int argc, char **argv)
+
+static int cmd_echo(void *taskarg, int argc, char **argv)
 {
 	char	*testargs[] = {
 		"",
@@ -151,48 +160,4 @@ static int cli_echo(void *taskarg, int argc, char **argv)
 	return 0;
 }
 
-static int cli_dump(void *taskarg, int argc, char **argv)
-{
-	char	*p;
-	int	n;
-
-	if (argc < 2) {
-		task_puts(taskarg, "usage: dump address [length]\r\n");
-		return -1;
-	}
-
-	p = (char*)strtol(argv[1], NULL, 0);
-	if (argc > 2) {
-		n = (int) strtol(argv[2], NULL, 0);
-	} else {
-		n = 16 * 4;
-	}
-	hexdump(taskarg, p, n);
-	return 0;
-}
-	
-#if	(CFG_HISTORY_ITEMS > 0)
-static int cli_history(void *taskarg, int argc, char **argv)
-{
-	xtcb_t	*xtcb = taskarg;
-	rdln_t	*rdl = xtcb->readline;
-	char	*argxs[CFG_CLI_MAX_PARAM];
-	int	i;
-
-	if (argc < 2) {
-		return readline_history_dump(rdl);
-	}
-
-	i = (int)strtol(argv[1], NULL, 0);
-	if (history_copy(&rdl->history, i, rdl->lbuf, CFG_READLINE_BUFFER) > 0) {
-		argc = cli_mkargs(rdl->lbuf, argxs, CFG_CLI_MAX_PARAM);
-		if (argc) {
-			cli_main(taskarg, cmdtab, argc, argxs);
-		}
-		task_puts(xtcb, "#> ");
-		return 0;	
-	}	
-	return -2;
-}
-#endif
 

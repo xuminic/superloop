@@ -48,7 +48,8 @@ int uart_write_block(uart_t *ufp, char *buf, int len)
 	int	rc;
 
 	if ((rc = uart_write_nonblock(ufp, buf, len)) == UERR_WAIT) {
-		bai_uart_send_sleep(ufp);
+		/* whatever sending, it should be done in 1 second */
+		bai_uart_send_sleep(ufp, 1000);
 		return len;
 	}
 	return rc;
@@ -100,8 +101,35 @@ int uart_read_block(uart_t *ufp, char *buf, int len)
 		if ((n = uart_read_nonblock(ufp, buf + i, len - i)) < 0) {
 			break;
 		}
-		bai_uart_receive_sleep(ufp);
+		if (n == 0) {
+			bai_uart_receive_sleep(ufp, 0);
+		}
+		if ((ufp->state & FCMD_RECV) == 0) {
+			break;	/* break by interrupt */
+		}
+	}
+	ufp->state &= ~FCMD_RECV;
+	return i;
+}
 
+
+int uart_read_timeout(uart_t *ufp, char *buf, int len, int ms)
+{
+	int	i, n;
+
+	if (ufp->state & FCMD_RECV) {
+		return UERR_BUSY;
+	}
+	ufp->state |= FCMD_RECV;
+	for (i = n = 0; i < len; i += n) {
+		if ((n = uart_read_nonblock(ufp, buf + i, len - i)) < 0) {
+			break;
+		}
+		if (n == 0) {
+			if (bai_uart_receive_sleep(ufp, ms) < 0) {
+				break;	/* timeout */
+			}
+		}
 		if ((ufp->state & FCMD_RECV) == 0) {
 			break;	/* break by interrupt */
 		}

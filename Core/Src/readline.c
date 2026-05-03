@@ -69,6 +69,7 @@ Ctrl-E	移至行尾	0x05 (ENQ)	(常用但在 Readline 中定义)
 #include <string.h>
 
 #include "readline.h"
+#include "platform.h"
 
 
 #define RDL_APPEND	0
@@ -82,9 +83,12 @@ Ctrl-E	移至行尾	0x05 (ENQ)	(常用但在 Readline 中定义)
 
 #ifdef	EXECUTABLE
 #include <unistd.h>
-#define	u_puts(s)	write(STDOUT_FILENO, (s), strlen(s))
+#define	r_puts(n,s)	write(STDOUT_FILENO, (s), strlen(s))
 #else
-extern	int u_puts(char *s);
+static void r_puts(rdln_t *rdl, char *s)
+{
+	uart_write_block(rdl->uart, s, strlen(s));
+}
 #endif
 
 
@@ -176,7 +180,7 @@ char *readline(rdln_t *rdl, int c)
 			break;
 		case '\r':
 		case '\n':
-			u_puts("\r\n");
+			r_puts(rdl, "\r\n");
                         rdl->lbuf[rdl->idx] = 0;
 			rdl->idx = rdl->cursor = 0;
 #if	(CFG_HISTORY_ITEMS > 0)
@@ -243,7 +247,7 @@ static int readline_insert(rdln_t *rdl, int c)
 	if (rdl->cursor == rdl->idx) {
 		rdl->lbuf[rdl->idx] = (char) c;
 		rdl->lbuf[rdl->idx+1] = 0;
-		u_puts(&rdl->lbuf[rdl->idx]);
+		r_puts(rdl, &rdl->lbuf[rdl->idx]);
 		rdl->idx++;
 		rdl->cursor++;
 	} else {
@@ -263,18 +267,18 @@ static int readline_render(rdln_t *rdl, int curmove)
 
 	if (curmove > 0) {		/* cursor move right */
 		sprintf(buf, "\033[%dC", (unsigned char)curmove);
-		u_puts(buf);
+		r_puts(rdl, buf);
 	} else if (curmove < 0) {	/* cursor move left */
 		sprintf(buf, "\033[%dD", (unsigned char)(- curmove));
-		u_puts(buf);
+		r_puts(rdl, buf);
 	}
-	u_puts(&rdl->lbuf[rdl->cursor]);
+	r_puts(rdl, &rdl->lbuf[rdl->cursor]);
 	if (rdl->idx > rdl->cursor) {
 		sprintf(buf, "\033[K\033[%dD", (unsigned char)(rdl->idx - rdl->cursor));
 	} else {
 		strcpy(buf, "\033[K");
 	}
-	u_puts(buf);
+	r_puts(rdl, buf);
 	return 0;
 }
 
@@ -292,7 +296,7 @@ static int readline_backspace(rdln_t *rdl)
 	if (rdl->cursor == rdl->idx) {
 		rdl->cursor--;
 		rdl->idx--;
-		u_puts("\b \b");	/* delete the last char in display */
+		r_puts(rdl, "\b \b");	/* delete the last char in display */
 	} else {
 		memmove(&rdl->lbuf[rdl->cursor-1], &rdl->lbuf[rdl->cursor],
                                 rdl->idx - rdl->cursor + 1);
@@ -363,7 +367,7 @@ static int readline_word_erase(rdln_t *rdl)
 static int readline_cursor_left(rdln_t *rdl)
 {
 	if (rdl->cursor) {
-		u_puts("\033[1D");
+		r_puts(rdl, "\033[1D");
 		rdl->cursor--;
 	}
 	return 0;
@@ -372,7 +376,7 @@ static int readline_cursor_left(rdln_t *rdl)
 static int readline_cursor_right(rdln_t *rdl)
 {
 	if (rdl->cursor < rdl->idx) {
-		u_puts("\033[1C");
+		r_puts(rdl, "\033[1C");
 		rdl->cursor++;
 	}
 	return 0;
@@ -384,7 +388,7 @@ static int readline_cursor_home(rdln_t *rdl)
 
 	if (rdl->cursor) {
 		sprintf(buf, "\033[%dD", (unsigned char)rdl->cursor);
-		u_puts(buf);
+		r_puts(rdl, buf);
 		rdl->cursor = 0;
 	}
 	return 0;
@@ -396,7 +400,7 @@ static int readline_cursor_end(rdln_t *rdl)
 
 	if (rdl->cursor < rdl->idx) {
 		sprintf(buf, "\033[%dC", (unsigned char)(rdl->idx - rdl->cursor));
-		u_puts(buf);
+		r_puts(rdl, buf);
 		rdl->cursor = rdl->idx;
 	}
 	return 0;
@@ -439,16 +443,41 @@ int readline_history_dump(rdln_t *rdl)
 	char	buf[CFG_READLINE_BUFFER+8];
 	int	i;
 
-	u_puts("\r\n");
+	r_puts(rdl, "\r\n");
 	for (i = hp->h_count - 1; i >= 0; i--) {
 		sprintf(buf, "%2d", i);
 		strcat(buf, "  ");
 		history_copy(hp, i, buf+4, CFG_READLINE_BUFFER);
 		strcat(buf, "\r\n");
-		u_puts(buf);
+		r_puts(rdl, buf);
 	}
 	return 0;
 }
+
+
+int cmd_history(void *taskarg, int argc, char **argv)
+{
+	xtcb_t	*xtcb = taskarg;
+	rdln_t	*rdl = xtcb->readline;
+	char	*argxs[CFG_CLI_MAX_PARAM];
+	int	i;
+
+	if (argc < 2) {
+		return readline_history_dump(rdl);
+	}
+
+	i = (int)strtol(argv[1], NULL, 0);
+	if (history_copy(&rdl->history, i, rdl->lbuf, CFG_READLINE_BUFFER) > 0) {
+		argc = cli_mkargs(rdl->lbuf, argxs, CFG_CLI_MAX_PARAM);
+		if (argc) {
+			cli_main(taskarg, argc, argxs);
+		}
+		task_puts(xtcb, "#> ");
+		return 0;	
+	}	
+	return -2;
+}
+
 #endif	/* CFG_HISTORY_ITEMS */
 
 
@@ -488,7 +517,7 @@ int main()
         fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
 	readline_init(&rdl);
-	u_puts("PS1> ");
+	r_puts(rdl, "PS1> ");
 	while (1) {
 		if (read(STDIN_FILENO, ch, 1) < 1) {
 			usleep(100);
@@ -496,7 +525,7 @@ int main()
 		}
 		if ((s = readline(&rdl, ch[0])) != NULL) {
 			puts(s);
-			u_puts("PS1> ");
+			r_puts(rdl, "PS1> ");
 		}
 	}
 

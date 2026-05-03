@@ -1,11 +1,13 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "platform.h"
 
 static  const   char    hex_tab[] = "0123456789ABCDEF";
+static	char	*hex_last = NULL;
 
 /* 00000000-  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................\r\n
    index:  0         11 (Hex)                              61 (ASCII) */
@@ -46,4 +48,26 @@ void hexdump(xtcb_t *xtcb, char *s, int len)
 		task_puts(xtcb, logbuf);
 	}
 }
+
+
+int cmd_dump(void *taskarg, int argc, char **argv)
+{
+	int	n = 64;
+
+	if (argc > 1) {
+		if (!strcmp(argv[1], "--help")) {
+			task_puts(taskarg, "usage: dump address [length]\r\n");
+			return -1;
+		}
+		hex_last = (char*)strtol(argv[1], NULL, 0);
+	}
+
+	if (argc > 2) {
+		n = (int) strtol(argv[2], NULL, 0);
+	}
+	hexdump(taskarg, hex_last, n);
+	hex_last += n;
+	return 0;
+}
+	
 
