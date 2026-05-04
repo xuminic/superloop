@@ -18,6 +18,7 @@
 #include "board_stm32f4xx.h"
 #include "uart.h"
 #include "led.h"
+#include "cli.h"
 #include "readline.h"
 #include "platform.h"
 #include "superloop.h"
@@ -259,6 +260,12 @@ void bai_uart_receive_awake(void *huart, int state)
 	}
 }
 
+
+static  cli_t   mycmds[] = {
+	{ "led", cmd_led, "LED manager" },
+	{ NULL, NULL, NULL }
+};
+
 int board_init(void)
 {
 	led_t	*l;
@@ -270,7 +277,7 @@ int board_init(void)
 
 	uart_init(console.uart, console.uartid);
 	readline_init(console.readline, console.uart);
-	cli_init(&console, NULL);
+	cli_init(&console, mycmds);
 	console.taskid = sloop_task_create(task_commandline, &console, 10, 0, NULL);
 
 	/* initialize the LED driver */

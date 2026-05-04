@@ -8,8 +8,11 @@
 #define CFG_LED_TICK		120     /* define the ticks for 1T: if 1 tick = 1ms, then 100ms */
 
 /* cli.c */
-#define CFG_CLI_MAX_PARAM	16      /* maximum command line parameters */
-#define CFG_CLI_TABLE		4	/* maximum command line tables */
+#define CFG_CLI_MAX             4       /* maximum cli group */
+#define CFG_CLI_MAX_PARAM       16      /* maximum command line parameters */
+#define CFG_CLI_ECHO            /* enable the "echo" command */
+#define CFG_CLI_DUMP            /* enable the "dump" command */
+
 
 /* crc16.c */
 #define CFG_CRC16_LOOKUP        1       /* require a lookup table for CRC16 (modbus) */

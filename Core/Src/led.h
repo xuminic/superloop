@@ -39,7 +39,7 @@ int led_pwm_light(led_t *led, int duty);
 int led_pwm_breath(led_t *led, int step, int ticks);
 int led_tick(void *tcb);
 void led_init(void *hgpio, int pin);
-int led_command(void *taskarg, int argc, char **argv);
+int cmd_led(void *taskarg, int argc, char **argv);
 void led_dump(void *taskarg, led_t *l);
 
 #ifdef __cplusplus

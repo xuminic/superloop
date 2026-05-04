@@ -222,7 +222,7 @@ OPTION:\r\n\
   -d, --dump            dump the LED status\r\n\
 ";
 
-int led_command(void *taskarg, int argc, char **argv)
+int cmd_led(void *taskarg, int argc, char **argv)
 {
 	xtcb_t	*xtcb = taskarg;
 	led_t	*led = &ledtab[0];
@@ -309,6 +309,7 @@ void led_dump(void *taskarg, led_t *l)
 	}
 	task_puts(taskarg, "\r\n");
 }
+
 
 void led_init(void *hgpio, int pin)
 {
