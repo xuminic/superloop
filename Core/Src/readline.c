@@ -263,21 +263,22 @@ static int readline_insert(rdln_t *rdl, int c)
 
 static int readline_render(rdln_t *rdl, int curmove)
 {
-	char	buf[16];
+	char	buf[32];
 
+	strcpy(buf, "\033[?25l");	/* hide the cursor */
 	if (curmove > 0) {		/* cursor move right */
-		sprintf(buf, "\033[%dC", (unsigned char)curmove);
-		r_puts(rdl, buf);
+		sprintf(buf + strlen(buf), "\033[%dC", (unsigned char)curmove);
 	} else if (curmove < 0) {	/* cursor move left */
-		sprintf(buf, "\033[%dD", (unsigned char)(- curmove));
-		r_puts(rdl, buf);
+		sprintf(buf + strlen(buf), "\033[%dD", (unsigned char)(- curmove));
 	}
+	r_puts(rdl, buf);
 	r_puts(rdl, &rdl->lbuf[rdl->cursor]);
 	if (rdl->idx > rdl->cursor) {
 		sprintf(buf, "\033[K\033[%dD", (unsigned char)(rdl->idx - rdl->cursor));
 	} else {
 		strcpy(buf, "\033[K");
 	}
+	strcat(buf, "\033[?25h");	/* show the cursor */
 	r_puts(rdl, buf);
 	return 0;
 }
@@ -437,6 +438,7 @@ static int readline_history_down(rdln_t *rdl)
 	return 0;
 }
 
+#include "cli.h"
 int readline_history_dump(rdln_t *rdl)
 {
 	hist_t	*hp = &rdl->history;
