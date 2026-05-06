@@ -25,21 +25,21 @@ int uart_read_poll(uart_t *ufp, char *buf, int len)
 	return len;
 }
 
-static int cli_loop(xtcb_t *xtcb, int ms)
+static int cli_loop(tty_t *tty, int ms)
 {
 	char	*s, c[4], *argv[CFG_CLI_MAX_PARAM];
 	int	argc;
 
-	if (uart_read_nonblock(xtcb->uart, c, 1) > 0) {
-		if ((s = readline(xtcb->readline, c[0])) != NULL) {
+	if (uart_read_nonblock(&tty->uart, c, 1) > 0) {
+		if ((s = readline(&tty->readline, c[0])) != NULL) {
 			argc = cli_mkargs(s, argv, CFG_CLI_MAX_PARAM);
 			if (argc) {
 				if (!strcmp(argv[0], "exit")) {
 					return -2;	/* exit */
 				}
-				cli_main(xtcb, argc, argv);
+				cli_main(tty, argc, argv);
 			}
-			task_puts(xtcb, "#> ");
+			tty_puts(tty, "#> ");
 		}
 		return 0;	/* reset timer */
 	}

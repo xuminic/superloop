@@ -10,9 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "board.h"
-#include "platform.h"
 #include "readline.h"
+#include "tty.h"
 #include "cli.h"
 
 
@@ -41,7 +40,7 @@ static	cli_t	cmddef[] = {
 static	cli_t	*cmdtab[CFG_CLI_MAX] = { cmddef };
 
 
-int cli_init(void *taskarg, cli_t *cmds)
+int cli_init(cli_t *cmds)
 {
 	int	k;
 
@@ -70,7 +69,7 @@ int cli_main(void *taskarg, int argc, char **argv)
 			}
 		}
 	}
-	task_printf(taskarg, "%s: command not found\r\n", argv[0]);
+	tty_printf(taskarg, "%s: command not found\r\n", argv[0]);
 	return -1;
 }
 
@@ -106,7 +105,7 @@ int cli_mkargs(char *s, char **argv, int argv_len)
 
 static int cmd_help(void *taskarg, int argc, char **argv)
 {
-	xtcb_t	*xtcb = taskarg;
+	tty_t	*tty = taskarg;
 	cli_t   *ctab;
 	int     i, k, n, wid = 0;
 
@@ -126,11 +125,11 @@ static int cmd_help(void *taskarg, int argc, char **argv)
 			continue;
 		}
 		for (i = 0; ctab[i].func; i++) {
-			memset(xtcb->logbuf, ' ', CFG_LOG_BUFF);
-			memcpy(xtcb->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
-			memcpy(xtcb->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
-			strcat(xtcb->logbuf, "\r\n");
-			task_puts(xtcb, xtcb->logbuf);
+			memset(tty->logbuf, ' ', CFG_LOG_BUFF);
+			memcpy(tty->logbuf, ctab[i].cmd, strlen(ctab[i].cmd));
+			memcpy(tty->logbuf + wid, ctab[i].usage, strlen(ctab[i].usage)+1);
+			strcat(tty->logbuf, "\r\n");
+			tty_puts(tty, tty->logbuf);
 		}
 	}
 	return 0;
@@ -155,17 +154,17 @@ static int cmd_echo(void *taskarg, int argc, char **argv)
 
 	if (argc > 1) {
 		for (i = 0; i < argc; i++) {
-			task_printf(taskarg, "#%d: %s\n", i, argv[i]);
+			tty_printf(taskarg, "#%d: %s\n", i, argv[i]);
 		}
 		return 0;
 	}
 
 	for (n = 0; testargs[n]; n++) {
-		task_printf(taskarg, "Parsing <%s>\n", testargs[n]);
+		tty_printf(taskarg, "Parsing <%s>\n", testargs[n]);
 		strcpy(buf, testargs[n]);
 		argc = cli_mkargs(buf, myargv, 16);
 		for (i = 0; i < argc; i++) {
-			task_printf(taskarg, "    #%d: %s\n", i, myargv[i]);
+			tty_printf(taskarg, "    #%d: %s\n", i, myargv[i]);
 		}
 	}
 	return 0;
@@ -181,8 +180,8 @@ static	char	*hex_last = NULL;
    index:  0         11 (Hex)                              61 (ASCII) */
 void hexdump(void *taskarg, char *s, int len) 
 {
-	xtcb_t	*xtcb = taskarg;
-	char	*bp, *logbuf = xtcb->logbuf;
+	tty_t	*tty = taskarg;
+	char	*bp, *logbuf = tty->logbuf;
 	int 	i, n;
 
 	bp = (char*)(((unsigned long) s) & ~0xf);
@@ -214,7 +213,7 @@ void hexdump(void *taskarg, char *s, int len)
 			/* filling the ASCII part */
 			logbuf[61 + i] = isprint((int)*bp) ? *bp : '.';
 		}
-		task_puts(xtcb, logbuf);
+		tty_puts(tty, logbuf);
 	}
 }
 
@@ -225,7 +224,7 @@ static int cmd_dump(void *taskarg, int argc, char **argv)
 
 	if (argc > 1) {
 		if (!strcmp(argv[1], "--help")) {
-			task_puts(taskarg, "usage: dump address [length]\r\n");
+			tty_puts(taskarg, "usage: dump address [length]\r\n");
 			return -1;
 		}
 		hex_last = (char*)strtol(argv[1], NULL, 0);

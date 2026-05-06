@@ -28,8 +28,17 @@ typedef	struct	{
 #define READLINE_STAT_CHANGED	2	/* current line is changed */
 
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+typedef void (*tty_f)(void *, char *);
+
 typedef	struct	{
-	void	*uart;		/* point to the i/o of character stream */
+	tty_f	puts;		/* terminal interface */
+	void	*tty;		/* terminal object */
+	
 	char	lbuf[CFG_READLINE_BUFFER];
 	int	idx;
 	int	cursor;
@@ -42,13 +51,8 @@ typedef	struct	{
 } rdln_t;
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* readline.c */
-void *readline_init(rdln_t *rdl, void *uart);
+void *readline_init(rdln_t *rdl, tty_f func, void *tty);
 char *readline(rdln_t *rdl, int c);
 #if	(CFG_HISTORY_ITEMS > 0)
 int readline_history_dump(rdln_t *rdl);

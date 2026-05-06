@@ -2,6 +2,8 @@
 #ifndef	_MODBUS_H_
 #define _MODBUS_H_
 
+#include "board.h"
+
 #define	CFG_MODBUS_BUFSIZE	256+16
 
 #define MBUS_STAT_READY		0	/* received a full modbus package */
@@ -13,7 +15,7 @@ enum	{
 	MREG_SLAVE_ID,
 	MREG_COMMAND,
 	MREG_PWM_FREQ,
-	MREG_PWM_DTIME,		/* dead time */
+	REG_PWM_DTIME,		/* dead time */
 	MREG_PWM_DUTY,		/* default duty */
 	MREG_PWM_DUTY2,		/* second duty */
 	MREG_MAX
@@ -37,6 +39,10 @@ extern "C"
 int modbus_receive(void *taskarg, mbus_t *mb, int ch);
 int modbus_main(void *taskarg, mbus_t *mb);
 void modbus_reset(mbus_t *mb);
+
+/* crc16.c */
+int modbus_crc16(char *buf, int len);
+int modbus_crc_armour(char *buf, int len);
 
 #ifdef __cplusplus
 } // __cplusplus defined.

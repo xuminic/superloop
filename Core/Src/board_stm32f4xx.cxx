@@ -19,15 +19,13 @@
 #include "uart.h"
 #include "led.h"
 #include "cli.h"
+#include "tty.h"
 #include "readline.h"
-#include "platform.h"
 #include "superloop.h"
 
 extern	UART_HandleTypeDef	huart1;
 
-static	uart_t	conuart;
-static	rdln_t	conreadln;
-static	xtcb_t	console;
+static	tty_t	console;
 
 char	*splash = "\r\n\
 STM32 Time-Triggered Co-operative Super-Loop.\r\n\
@@ -54,8 +52,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-	xtcb_t	*xtcb = bai_get_uart_xtcb(huart);
-	uart_t	*ufp = xtcb->uart;
+	tty_t	*tty = bai_find_tty(huart);
+	uart_t	*ufp = &tty->uart;
 
 	if (huart->ErrorCode & HAL_UART_ERROR_ORE) {
 		__HAL_UART_CLEAR_OREFLAG(huart);	/* clear ORE, NE, FE flags */
@@ -189,15 +187,15 @@ void bai_hard_delay(int ms)
 	HAL_Delay(ms);
 }
 
-void *bai_get_uart_xtcb(void *huart)
+void *bai_find_tty(void *huart)
 {
-	if (console.uart->handler == huart) {
+	if (console.uart.handler == huart) {
 		return &console;
 	}
 	return NULL;
 }
 
-void *bai_get_current_xtcb(void)
+void *bai_current_tty(void)
 {
 	void	*tcb = sloop_get_tcb();	
 
@@ -207,7 +205,7 @@ void *bai_get_current_xtcb(void)
         return &console;        /* set defaults to console */
 }
 
-void *bai_get_default_uart(void)
+void *bai_default_tty(void)
 {
 	return &console;
 }
@@ -229,9 +227,9 @@ int bai_uart_send_sleep(void *uhandle, int ms)
 
 void bai_uart_send_awake(void *huart)
 {
-	xtcb_t	*xtcb = bai_get_uart_xtcb(huart);
+	tty_t	*tty = bai_find_tty(huart);
 
-	xtcb->uart->state &= ~FCMD_SEND;
+	tty->uart.state &= ~FCMD_SEND;
 }
 
 int bai_uart_receive_sleep(void *uhandle, int ms)
@@ -251,11 +249,11 @@ int bai_uart_receive_sleep(void *uhandle, int ms)
 
 void bai_uart_receive_awake(void *huart, int state)
 {
-	xtcb_t          *xtcb = bai_get_uart_xtcb(huart);
+	tty_t          *tty = bai_find_tty(huart);
 
-	if (xtcb->uart->state & FCMD_RECV) {
+	if (tty->uart.state & FCMD_RECV) {
 		if (state < 0) {
-			xtcb->uart->state &= ~FCMD_RECV;
+			tty->uart.state &= ~FCMD_RECV;
 		}
 	}
 }
@@ -270,14 +268,10 @@ int board_init(void)
 {
 	led_t	*l;
 
-	/* initialize the console for user interface */
-	console.uartid   = &huart1;
-	console.uart     = &conuart;
-	console.readline = &conreadln;
+	cli_init(mycmds);
 
-	uart_init(console.uart, console.uartid);
-	readline_init(console.readline, console.uart);
-	cli_init(&console, mycmds);
+	/* initialize the console for user interface */
+	tty_init(&console, &huart1);
 	console.taskid = sloop_task_create(task_commandline, &console, 10, 0, NULL);
 
 	/* initialize the LED driver */
@@ -288,7 +282,7 @@ int board_init(void)
                 led_pwm_light(l, 10);
         }
 	sloop_task_create(led_tick, NULL, 1, 0, NULL);
-	task_puts(&console, splash);
+	tty_puts(&console, splash);
 	return 0;
 }
 
@@ -297,7 +291,7 @@ void panic(void *p)
 	static char  dying[] = { "BOM!!!\r\n" };
         
 	if (p == NULL) {
-		bai_uart_poll_send(console.uartid, dying, 8);
+		bai_uart_poll_send(console.uart.handler, dying, 8);
         }
 } 
 

@@ -8,18 +8,7 @@
 #ifndef	EXECUTABLE
 #include "main.h"
 #endif
-#include "platform.h"
-#include "board.h"
 #include "led.h"
-
-
-#define MOREARG(c,v)    {       \
-        --(c), ++(v); \
-        if (((c) == 0) || (**(v) == '-') || (**(v) == '+')) { \
-                fprintf(stderr, "missing parameters\n"); \
-                return -1; \
-        }\
-}
 
 
 static	const	uint32_t	morse32[128] = {
@@ -210,6 +199,19 @@ static void led_pwm(led_t *l)
 }
 
 
+#include "tty.h"
+
+#define StrNCpy(d,s,n)  (strncpy((d),(s),(n)-1), (d)[(n)-1] = 0)
+
+#define MOREARG(c,v)    {       \
+        --(c), ++(v); \
+        if (((c) == 0) || (**(v) == '-') || (**(v) == '+')) { \
+                tty_puts(taskarg, "missing parameters\r\n"); \
+                return -1; \
+        }\
+}
+
+
 static	char	*led_help = "\
 Usage: led [OPTION] [message]\r\n\
 OPTION:\r\n\
@@ -224,14 +226,14 @@ OPTION:\r\n\
 
 int cmd_led(void *taskarg, int argc, char **argv)
 {
-	xtcb_t	*xtcb = taskarg;
+	tty_t	*tty = taskarg;
 	led_t	*led = &ledtab[0];
 	int	i, duty, step, hold, todo = 0;
 
 	duty = step = hold = -1;
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-H") || !strcmp(*argv, "--help")) {
-			task_puts(taskarg, led_help);
+			tty_puts(taskarg, led_help);
 			return 0;
 		} else if (!strcmp(*argv, "-l") || !strcmp(*argv, "--led")) {
 			MOREARG(argc, argv);
@@ -255,13 +257,13 @@ int cmd_led(void *taskarg, int argc, char **argv)
 		} else if (!strcmp(*argv, "-d") || !strcmp(*argv, "--dump")) {
 			todo = 'd';
 		} else {
-			task_printf(taskarg, "%s: unknown parameter.\r\n", *argv);
+			tty_printf(taskarg, "%s: unknown parameter.\r\n", *argv);
 			return -1;
 		}
 	}
 
 	if (led->hgpio == NULL) {
-		task_puts(taskarg, "LED device not defined\r\n");
+		tty_puts(taskarg, "LED device not defined\r\n");
 		return -2;
 	}
 	
@@ -275,14 +277,14 @@ int cmd_led(void *taskarg, int argc, char **argv)
 	}
 
 	if (argc) {
-		StrNCpy(xtcb->logbuf, *argv, CFG_LOG_BUFF);
+		StrNCpy(tty->logbuf, *argv, CFG_LOG_BUFF);
 	} else {
-		strcpy(xtcb->logbuf, "HelloWorld");
+		strcpy(tty->logbuf, "HelloWorld");
 	}
 	if (todo == 'm') {
-		led_telegram(led, xtcb->logbuf);
+		led_telegram(led, tty->logbuf);
 	} else if (todo == 't') {
-		led_ticker(led, xtcb->logbuf);
+		led_ticker(led, tty->logbuf);
 	} else if (todo == 'd') {
 		for (i = 0; i < CFG_LED_NUMBER; i++) {
 			if (ledtab[i].hgpio) {
@@ -295,19 +297,19 @@ int cmd_led(void *taskarg, int argc, char **argv)
 
 void led_dump(void *taskarg, led_t *l)
 {
-	task_printf(taskarg, "LED PWM duty:           %d\r\n", l->duty);
-	task_printf(taskarg, "LED PWM Breath step:    %d\r\n", l->step);
-	task_printf(taskarg, "LED PWM Breath hold:    %d\r\n", l->hold);
-	task_printf(taskarg, "LED PWM Breath counter: %d\r\n", l->dcnt);
+	tty_printf(taskarg, "LED PWM duty:           %d\r\n", l->duty);
+	tty_printf(taskarg, "LED PWM Breath step:    %d\r\n", l->step);
+	tty_printf(taskarg, "LED PWM Breath hold:    %d\r\n", l->hold);
+	tty_printf(taskarg, "LED PWM Breath counter: %d\r\n", l->dcnt);
 	if (l->rblen) {
-		task_printf(taskarg, "Ticker Message:         <%s> (%d)\r\n", l->ringbuf, l->rbnow);
+		tty_printf(taskarg, "Ticker Message:         <%s> (%d)\r\n", l->ringbuf, l->rbnow);
 	} else {
-		task_puts(taskarg, "Ticker Message:         <>\r\n");
+		tty_puts(taskarg, "Ticker Message:         <>\r\n");
 	}
 	if (l->telegram) {
-		task_printf(taskarg, "Telegram Message:       <%s>\r\n", l->telegram);
+		tty_printf(taskarg, "Telegram Message:       <%s>\r\n", l->telegram);
 	}
-	task_puts(taskarg, "\r\n");
+	tty_puts(taskarg, "\r\n");
 }
 
 
