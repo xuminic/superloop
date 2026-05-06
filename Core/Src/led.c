@@ -313,18 +313,6 @@ void led_dump(void *taskarg, led_t *l)
 }
 
 
-void led_init(void *hgpio, int pin)
-{
-	led_t	*l;
-
-	if ((l = led_open(hgpio, pin)) != NULL) {
-		l->duty = 50;
-		l->step = 10;
-		l->hold = 100;
-	}
-}
-
-
 #ifdef	EXECUTABLE
 #include <unistd.h>
 #include <time.h>
